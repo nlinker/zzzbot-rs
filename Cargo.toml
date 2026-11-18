@@ -1,0 +1,18 @@
+[package]
+name = "zzzkbot"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+description = "SC:BW zerg bot on bwapi-rs inspired by ZZZKBot"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[[bin]]
+name = "deploy"
+path = "src/main.rs"
+
+[dependencies]
+bwapi = { path = "../bwapi-rs/crates/bwapi" }

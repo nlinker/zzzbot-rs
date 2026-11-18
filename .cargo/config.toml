@@ -1,0 +1,4 @@
+# scbw (SC 1.16.1) is an x86 process: the bot DLL must be i686.
+# Pinning the target here keeps plain `cargo build` / `cargo run` flag-free.
+[build]
+target = "i686-pc-windows-msvc"
