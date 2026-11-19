@@ -1,12 +1,15 @@
 //! The ZZZKBot-rs bot: a StarCraft: Brood War AI module built on bwapi-rs.
 
+mod util;
+mod workers;
+
 use bwapi::{Bot, Color, Context, CoordinateType, Game, TextColor, Unit, UnitQuery, UnitSet};
 
 pub struct ZzzkBot<'game> {
     name: String,
     /// Live set descriptors: valid for the whole match, read through a `Context`.
-    own_units: UnitSet<'game>,
-    minerals: UnitSet<'game>,
+    pub own_units: UnitSet<'game>,
+    pub minerals: UnitSet<'game>,
     /// Unit handles, valid for the whole match.
     created: Vec<Unit<'game>>,
     /// An owned query result, read a few items at a time across frames.
@@ -28,30 +31,6 @@ impl<'game> ZzzkBot<'game> {
         );
         game.draw_text(CoordinateType::Screen, 10, 10, &message);
         game.draw_line(CoordinateType::Screen, 10, 21, 40, 21, Color::RED);
-    }
-
-    fn give_orders(&self, cx: Context<'_, 'game>) {
-        for unit in self.own_units.iter(cx) {
-            let unit_type = unit.unit_type();
-            if unit_type.is_worker() {
-                if !unit.is_idle() {
-                    continue;
-                }
-                if unit.is_carrying_gas() || unit.is_carrying_minerals() {
-                    unit.return_cargo();
-                    continue;
-                }
-                let closest = self
-                    .minerals
-                    .iter(cx)
-                    .min_by_key(|&mineral| unit.distance_to_unit(mineral));
-                if let Some(mineral) = closest {
-                    unit.right_click_unit(mineral);
-                }
-            } else if unit_type.is_resource_depot() && !unit.is_training() {
-                unit.train(unit_type.race().worker());
-            }
-        }
     }
 
     /// Marks one unit around the base per frame; the query keeps its position
