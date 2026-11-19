@@ -3,7 +3,7 @@
 mod util;
 mod workers;
 
-use bwapi::{Bot, Color, Context, CoordinateType, Game, TextColor, Unit, UnitQuery, UnitSet};
+use bwapi::{Bot, Color, Context, CoordinateType, Game, TextColor, Unit, UnitQuery, UnitSet, UnitType};
 
 pub struct ZzzkBot<'game> {
     name: String,
@@ -31,6 +31,19 @@ impl<'game> ZzzkBot<'game> {
         );
         game.draw_text(CoordinateType::Screen, 10, 10, &message);
         game.draw_line(CoordinateType::Screen, 10, 21, 40, 21, Color::RED);
+
+        let counts = util::own_counts(&self.own_units, cx);
+        let me = game.self_player().expect("the bot plays a match, not a replay");
+        let lings = counts.all.get(&UnitType::ZERG_ZERGLING).copied().unwrap_or(0);
+        let lings_done = counts.completed.get(&UnitType::ZERG_ZERGLING).copied().unwrap_or(0);
+        let supply = format!(
+            "U {}/{}, lings {} (+{} in eggs)",
+            util::supply_str(counts.supply_used),
+            util::supply_str(me.supply_total()),
+            lings_done,
+            lings - lings_done,
+        );
+        game.draw_text(CoordinateType::Screen, 10, 26, &supply);
     }
 
     /// Marks one unit around the base per frame; the query keeps its position
