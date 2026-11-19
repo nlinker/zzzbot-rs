@@ -40,7 +40,33 @@ fn run() -> Result<(), String> {
     });
     set_ai_keys(&ini, &ai_value, backup)?;
 
+    sync_maps(&scbw)?;
+
+    println!();
+    println!("Ready. Start ChaosLauncher, enable BWAPI 4.4.0 Injector [RELEASE], press Start.");
+
     Ok(())
+}
+
+/// The scbw directory: `--scbw <path>`, else `SCBW_DIR`, else the default.
+fn scbw_dir() -> Result<PathBuf, String> {
+    let args: Vec<String> = env::args().collect();
+    if let Some(pos) = args.iter().position(|a| a == "--scbw") {
+        return args
+            .get(pos + 1)
+            .map(PathBuf::from)
+            .ok_or_else(|| "--scbw requires a path".to_string());
+    }
+    if let Ok(dir) = env::var("SCBW_DIR") {
+        if !dir.is_empty() {
+            return Ok(PathBuf::from(dir));
+        }
+    }
+    let dir = PathBuf::from(DEFAULT_SCBW);
+    if !dir.is_dir() {
+        return Err(format!("scbw directory not found: {} (use --scbw or SCBW_DIR)", dir.display()));
+    }
+    Ok(dir)
 }
 
 /// Wires the bot DLL into `bwapi.ini` through the `[ai]` `ai=`/`ai_dbg=` keys.
@@ -87,27 +113,6 @@ fn set_ai_keys(ini: &Path, value: &str, backup: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// The scbw directory: `--scbw <path>`, else `SCBW_DIR`, else the default.
-fn scbw_dir() -> Result<PathBuf, String> {
-    let args: Vec<String> = env::args().collect();
-    if let Some(pos) = args.iter().position(|a| a == "--scbw") {
-        return args
-            .get(pos + 1)
-            .map(PathBuf::from)
-            .ok_or_else(|| "--scbw requires a path".to_string());
-    }
-    if let Ok(dir) = env::var("SCBW_DIR") {
-        if !dir.is_empty() {
-            return Ok(PathBuf::from(dir));
-        }
-    }
-    let dir = PathBuf::from(DEFAULT_SCBW);
-    if !dir.is_dir() {
-        return Err(format!("scbw directory not found: {} (use --scbw or SCBW_DIR)", dir.display()));
-    }
-    Ok(dir)
-}
-
 /// The freshly built DLL sits next to this executable in the cargo target dir.
 fn find_bot_dll() -> Result<PathBuf, String> {
     let exe = env::current_exe().map_err(|e| format!("cannot locate this executable: {e}"))?;
@@ -119,4 +124,45 @@ fn find_bot_dll() -> Result<PathBuf, String> {
         ));
     }
     Ok(dll)
+}
+
+/// Copies the bundled `maps` tree into the game without replacing existing files.
+fn sync_maps(scbw: &Path) -> Result<(), String> {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("maps");
+    let dst = scbw.join("maps");
+    if !src.is_dir() {
+        return Err(format!("bundled maps not found: {}", src.display()));
+    }
+    let (copied, skipped) = copy_tree(&src, &dst)?;
+    println!("maps: {copied} copied, {skipped} already present");
+    Ok(())
+}
+
+fn copy_tree(src: &Path, dst: &Path) -> Result<(usize, usize), String> {
+    fn io_context<T>(result: std::io::Result<T>, path: &Path) -> Result<T, String> {
+        result.map_err(|e| format!("{}: {e}", path.display()))
+    }
+    io_context(fs::create_dir_all(dst), dst)?;
+    let mut copied = 0;
+    let mut skipped = 0;
+    for entry in io_context(fs::read_dir(src), src)? {
+        let entry = io_context(entry, src)?;
+        let source = entry.path();
+        let target = dst.join(entry.file_name());
+        let kind = io_context(entry.file_type(), &source)?;
+        if kind.is_dir() {
+            let (c, s) = copy_tree(&source, &target)?;
+            copied += c;
+            skipped += s;
+        } else if kind.is_file() {
+            if target.exists() {
+                skipped += 1;
+            } else {
+                io_context(fs::copy(&source, &target), &source)?;
+                println!("map: {} -> {}", source.display(), target.display());
+                copied += 1;
+            }
+        }
+    }
+    Ok((copied, skipped))
 }
