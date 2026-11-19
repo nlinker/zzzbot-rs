@@ -63,6 +63,10 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
         let name = String::from("ZZZKBot-rs");
         game.send_text(&format!("Hello from Rust! {name} reporting in"));
 
+        // Fast-forward (single player only); raise the skip for even more speed.
+        game.set_local_speed(0);
+        game.set_frame_skip(2);
+
         let me = game.self_player().expect("the bot plays a match, not a replay");
         let own_units = me.units();
         let base = own_units.iter(cx).find(|u| u.unit_type().is_resource_depot());
