@@ -1,10 +1,11 @@
 //! Deploys the built bot DLL into a StarCraft installation:
 //! copies the DLL, wires `bwapi.ini`, and ensures the maps are present.
 
-use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::ExitCode;
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 
 const DEFAULT_SCBW: &str = r"D:\scai\scbw";
 const DEFAULT_INPLACE: bool = true;
@@ -64,7 +65,10 @@ fn scbw_dir() -> Result<PathBuf, String> {
     }
     let dir = PathBuf::from(DEFAULT_SCBW);
     if !dir.is_dir() {
-        return Err(format!("scbw directory not found: {} (use --scbw or SCBW_DIR)", dir.display()));
+        return Err(format!(
+            "scbw directory not found: {} (use --scbw or SCBW_DIR)",
+            dir.display()
+        ));
     }
     Ok(dir)
 }
@@ -101,7 +105,10 @@ fn set_ai_keys(ini: &Path, value: &str, backup: bool) -> Result<(), String> {
         }
     }
     if seen == 0 {
-        return Err(format!("no ai= or ai_dbg= keys in the [ai] section of {}", ini.display()));
+        return Err(format!(
+            "no ai= or ai_dbg= keys in the [ai] section of {}",
+            ini.display()
+        ));
     }
     let bak = ini.with_extension("ini.bak");
     if backup && !bak.exists() {

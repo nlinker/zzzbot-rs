@@ -71,13 +71,9 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
         let name = String::from("ZZZKBot-rs");
         game.send_text(&format!("Hello from Rust! {name} reporting in"));
 
-        let me = game
-            .self_player()
-            .expect("the bot plays a match, not a replay");
+        let me = game.self_player().expect("the bot plays a match, not a replay");
         let own_units = me.units();
-        let base = own_units
-            .iter(cx)
-            .find(|u| u.unit_type().is_resource_depot());
+        let base = own_units.iter(cx).find(|u| u.unit_type().is_resource_depot());
         ZzzkBot {
             name,
             own_units,
@@ -101,11 +97,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
     fn on_end(self, cx: Context<'_, 'game>, is_winner: bool) {
         let game = cx.game();
         let result = if is_winner { "won" } else { "lost" };
-        game.send_text(&format!(
-            "{} {result} at frame {}",
-            self.name,
-            game.frame_count()
-        ));
+        game.send_text(&format!("{} {result} at frame {}", self.name, game.frame_count()));
     }
 }
 
