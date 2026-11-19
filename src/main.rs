@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 const DEFAULT_SCBW: &str = r"D:\scai\scbw";
+const DEFAULT_INPLACE: bool = true;
 
 /// The cdylib artifact is named after the package (`[lib] name` is not overridden).
 const BOT_DLL: &str = concat!(env!("CARGO_PKG_NAME"), ".dll");
@@ -29,6 +30,60 @@ fn run() -> Result<(), String> {
     fs::copy(&dll, &dest).map_err(|e| format!("cannot copy {} to {}: {e}", dll.display(), dest.display()))?;
     println!("DLL: {} -> {}", dll.display(), dest.display());
 
+    // relative to the game root: BWAPI resolves `ai=` against the StarCraft.exe directory.
+    let ai_value = format!("bwapi-data/ai/{BOT_DLL}");
+    let ini = scbw.join("bwapi-data").join("bwapi.ini");
+    let backup = env::args().fold(!DEFAULT_INPLACE, |backup, arg| match arg.as_str() {
+        "--inplace" => false,
+        "--backup" => true,
+        _ => backup,
+    });
+    set_ai_keys(&ini, &ai_value, backup)?;
+
+    Ok(())
+}
+
+/// Wires the bot DLL into `bwapi.ini` through the `[ai]` `ai=`/`ai_dbg=` keys.
+/// Saves the original as `bwapi.ini.bak` on the first edit, unless `backup` is false.
+fn set_ai_keys(ini: &Path, value: &str, backup: bool) -> Result<(), String> {
+    let text = fs::read_to_string(ini).map_err(|e| format!("cannot read {}: {e}", ini.display()))?;
+    let mut out = String::with_capacity(text.len());
+    let mut in_ai = false;
+    let mut seen = 0;
+    for line in text.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let is_header = trimmed.starts_with('[');
+        if is_header {
+            in_ai = trimmed.starts_with("[ai]");
+        }
+        let key = if in_ai && !is_header {
+            let k = trimmed.split('=').next().unwrap_or("");
+            if k == "ai" || k == "ai_dbg" { Some(k) } else { None }
+        } else {
+            None
+        };
+        match key {
+            Some(k) => {
+                let eol = &line[line.trim_end_matches(['\r', '\n']).len()..];
+                out.push_str(k);
+                out.push('=');
+                out.push_str(value);
+                out.push_str(eol);
+                seen += 1;
+            }
+            None => out.push_str(line),
+        }
+    }
+    if seen == 0 {
+        return Err(format!("no ai= or ai_dbg= keys in the [ai] section of {}", ini.display()));
+    }
+    let bak = ini.with_extension("ini.bak");
+    if backup && !bak.exists() {
+        fs::copy(ini, &bak).map_err(|e| format!("cannot back up {} to {}: {e}", ini.display(), bak.display()))?;
+        println!("backup: {} -> {}", ini.display(), bak.display());
+    }
+    fs::write(ini, &out).map_err(|e| format!("cannot write {}: {e}", ini.display()))?;
+    println!("ini: ai= / ai_dbg= -> {value} ({seen} keys, {})", ini.display());
     Ok(())
 }
 
