@@ -2,6 +2,7 @@
 
 mod army;
 mod build_order;
+mod log;
 mod scouting;
 mod strategy;
 mod util;
@@ -9,6 +10,7 @@ mod workers;
 
 use bwapi::{Bot, Color, Context, CoordinateType, Game, TextColor, Unit, UnitQuery, UnitSet, UnitType};
 use build_order::BuildEngine;
+use log::Logger;
 use scouting::Scouting;
 use workers::macro_orders;
 use strategy::{Opener, Strategy};
@@ -30,6 +32,8 @@ pub struct ZzzkBot<'game> {
     /// Extractor trick.
     pub trick_builder: Option<Unit<'game>>,
     pub trick_extractor: Option<Unit<'game>>,
+    /// Decision-point log, truncated at match start.
+    pub logger: Logger,
     /// Unit handles, valid for the whole match.
     created: Vec<Unit<'game>>,
     /// An owned query result, read a few items at a time across frames.
@@ -38,6 +42,12 @@ pub struct ZzzkBot<'game> {
 }
 
 impl<'game> ZzzkBot<'game> {
+    /// One log line at a decision point; called sparingly, so the file stays
+    /// small.
+    pub fn log(&self, cx: Context<'_, 'game>, message: &str) {
+        self.logger.line(cx.game().frame_count(), message);
+    }
+
     fn draw_stats(&self, cx: Context<'_, 'game>) {
         let game = cx.game();
         let message = format!(
@@ -120,14 +130,16 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
 
         let base = own_units.iter(cx).find(|u| u.unit_type().is_resource_depot());
         let strategy = Strategy::new(seed);
-        game.send_text(&format!(
-            "seed {:016x}, opener {}",
-            seed,
-            match strategy.opener {
-                Opener::Pool4 => "4pool",
-                Opener::Standard => "standard",
-            }
-        ));
+        let opener = match strategy.opener {
+            Opener::Pool4 => "4pool",
+            Opener::Standard => "standard",
+        };
+        game.send_text(&format!("seed {seed:016x}, opener {opener}"));
+        let logger = Logger::open();
+        logger.line(
+            game.frame_count(),
+            &format!("start: opener {opener}, seed {seed:016x}, map {}", game.map_name()),
+        );
         ZzzkBot {
             name,
             own_units,
@@ -139,6 +151,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
             refinery: None,
             trick_builder: None,
             trick_extractor: None,
+            logger,
             created: Vec::new(),
             around_base: base.map(|depot| game.units_in_radius(depot.position(), 320)),
             scanned: 0,
@@ -148,6 +161,10 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
     fn on_end(self, cx: Context<'_, 'game>, is_winner: bool) {
         let game = cx.game();
         let result = if is_winner { "won" } else { "lost" };
+        self.logger.line(
+            game.frame_count(),
+            &format!("end: {result}, own units {}", self.own_units.len(cx)),
+        );
         game.send_text(&format!("{} {result} at frame {}", self.name, game.frame_count()));
     }
 
@@ -164,9 +181,21 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
         self.created.push(unit);
     }
 
-    fn on_unit_show(&mut self, _cx: Context<'_, 'game>, unit: Unit<'game>) {
+    fn on_unit_show(&mut self, cx: Context<'_, 'game>, unit: Unit<'game>) {
         if let Some(race) = self.scouting.note_enemy_unit(unit) {
             self.strategy.finalize(race);
+            let order = self
+                .strategy
+                .order
+                .map_or(String::from("?"), |o| o.name().to_string());
+            self.logger.line(
+                cx.game().frame_count(),
+                &format!(
+                    "scouted: race {}, order {order}, sunkens {}",
+                    race.name(),
+                    self.strategy.num_sunkens
+                ),
+            );
         }
     }
 }

@@ -12,6 +12,25 @@ const MINERAL_DEPOT_RADIUS: i32 = 10 * 32;
 /// Drones on one geyser.
 const GAS_WORKERS: usize = 3;
 
+/// Issues a planned build and logs the decision either way: builder and tile
+/// on success, the BWAPI error on failure.
+fn issue_build<'game>(
+    cx: Context<'_, 'game>,
+    bot: &mut ZzzkBot<'game>,
+    plan: build_order::Plan<'game>,
+    label: &str,
+) {
+    let game = cx.game();
+    let at = format!("{} at {},{}", label, plan.tile.x, plan.tile.y);
+    if plan.builder.build(plan.unit_type, plan.tile) {
+        bot.log(cx, &format!("{at}: builder #{}", plan.builder.id()));
+    } else {
+        let error = game.last_error().name();
+        bot.build.mark_fail(plan.unit_type, game.frame_count());
+        bot.log(cx, &format!("{at}: failed: {error}"));
+    }
+}
+
 /// The macro layer: issues build orders by the current strategy.
 pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     let game = cx.game();
@@ -23,10 +42,8 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         let status = match bot.build.plan(cx, &bot.own_units, &bot.scouting, pool) {
             Some(plan) => {
                 // Pool is the top priority: the builder goes right now.
-                if !plan.builder.build(plan.unit_type, plan.tile) {
-                    bot.build.mark_fail(pool, game.frame_count());
-                }
-                format!("pool: builder #{}, loc {},{}", plan.builder.id(), plan.tile.x, plan.tile.y)
+                issue_build(cx, bot, plan, "pool");
+                String::from("pool: ordered")
             }
             None => String::from("pool: waiting (minerals, throttle, builder or loc)"),
         };
@@ -99,9 +116,7 @@ fn manage_hatcheries<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     }
     let hatchery = UnitType::ZERG_HATCHERY;
     if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, hatchery) {
-        if !plan.builder.build(plan.unit_type, plan.tile) {
-            bot.build.mark_fail(hatchery, cx.game().frame_count());
-        }
+        issue_build(cx, bot, plan, "hatchery");
     }
 }
 
@@ -148,9 +163,12 @@ fn manage_lair<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         u.exists() && u.is_completed() && !u.is_morphing()
             && u.unit_type() == UnitType::ZERG_HATCHERY
     }) {
-        if !hatchery.morph(UnitType::ZERG_LAIR) {
+        if hatchery.morph(UnitType::ZERG_LAIR) {
+            bot.log(cx, &format!("lair: hatchery #{} morphing", hatchery.id()));
+        } else {
             bot.build.mark_fail(UnitType::ZERG_LAIR, game.frame_count());
             game.send_text(&format!("lair morph failed: {}", game.last_error().name()));
+            bot.log(cx, &format!("lair morph failed: {}", game.last_error().name()));
         }
     }
 }
@@ -178,9 +196,7 @@ fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     if lair_done && nests == 0 {
         let nest = UnitType::ZERG_QUEENS_NEST;
         if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, nest) {
-            if !plan.builder.build(plan.unit_type, plan.tile) {
-                bot.build.mark_fail(nest, game.frame_count());
-            }
+            issue_build(cx, bot, plan, "queen's nest");
         }
         return;
     }
@@ -200,9 +216,12 @@ fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 u.exists() && u.is_completed() && !u.is_morphing()
                     && u.unit_type() == UnitType::ZERG_LAIR
             }) {
-                if !lair.morph(UnitType::ZERG_HIVE) {
+                if lair.morph(UnitType::ZERG_HIVE) {
+                    bot.log(cx, &format!("hive: lair #{} morphing", lair.id()));
+                } else {
                     bot.build.mark_fail(UnitType::ZERG_HIVE, game.frame_count());
                     game.send_text(&format!("hive morph failed: {}", game.last_error().name()));
+                    bot.log(cx, &format!("hive morph failed: {}", game.last_error().name()));
                 }
             }
         }
@@ -212,7 +231,6 @@ fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 /// Base defense: creep colonies up to the strategy's sunken count, finished
 /// ones morphed into sunken colonies. Returns that count, colonies included.
 fn manage_sunkens<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> i32 {
-    let game = cx.game();
     let want = bot.strategy.num_sunkens;
 
     let mut have: i32 = 0;
@@ -244,6 +262,7 @@ fn manage_sunkens<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> i3
             }
             if colony.morph(UnitType::ZERG_SUNKEN_COLONY) {
                 have += 1;
+                bot.log(cx, &format!("sunken: colony #{} morphing", colony.id()));
             }
         }
     }
@@ -251,9 +270,7 @@ fn manage_sunkens<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> i3
     if have < want {
         let colony = UnitType::ZERG_CREEP_COLONY;
         if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, colony) {
-            if !plan.builder.build(plan.unit_type, plan.tile) {
-                bot.build.mark_fail(colony, game.frame_count());
-            }
+            issue_build(cx, bot, plan, "creep colony");
         }
     }
     have
@@ -262,7 +279,6 @@ fn manage_sunkens<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> i3
 /// Builds the extractor after the pool (not on a 4-pool all-in) and staffs
 /// it with three drones once completed.
 fn manage_gas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
-    let game = cx.game();
     // Dead drones and stale refinery leave the roster each frame.
     bot.gas_drones.retain(|d| d.exists());
     bot.refinery = bot
@@ -276,9 +292,7 @@ fn manage_gas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     if !all_in && refineries == 0 {
         let extractor = UnitType::ZERG_EXTRACTOR;
         if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, extractor) {
-            if !plan.builder.build(plan.unit_type, plan.tile) {
-                bot.build.mark_fail(extractor, game.frame_count());
-            }
+            issue_build(cx, bot, plan, "extractor");
         }
     }
 

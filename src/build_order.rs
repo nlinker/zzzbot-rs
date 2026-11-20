@@ -28,6 +28,7 @@ pub fn extractor_trick<'game>(
             }
             let _ = extractor.cancel_morph();
             game.send_text("extractor trick: cancelled");
+            bot.log(cx, "extractor trick: cancelled");
             bot.trick_extractor = None;
             return;
         }
@@ -77,6 +78,7 @@ pub fn extractor_trick<'game>(
     };
     if builder.build(UnitType::ZERG_EXTRACTOR, geyser.tile_position()) {
         game.send_text("extractor trick: started");
+        bot.log(cx, &format!("extractor trick: started, builder #{}", builder.id()));
         bot.trick_builder = Some(builder);
     }
 }

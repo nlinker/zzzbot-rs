@@ -29,7 +29,9 @@ pub fn supply_overlords<'game>(
         .find(|u| u.exists() && u.is_idle() && u.unit_type() == UnitType::ZERG_LARVA)
     {
         if larva.morph(UnitType::ZERG_OVERLORD) {
-            game.send_text("morphing overlord");
+            bot.log(cx, "supply: overlord morphing");
+        } else {
+            bot.log(cx, &format!("overlord morph failed: {}", game.last_error().name()));
         }
     }
 }
@@ -53,6 +55,9 @@ pub fn morph_lings<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> u
         if larva.morph(UnitType::ZERG_ZERGLING) {
             made += 1;
         }
+    }
+    if made > 0 {
+        bot.log(cx, &format!("lings: +{made}"));
     }
     made
 }
