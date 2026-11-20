@@ -1,8 +1,10 @@
 //! Worker and depot orders: demo mining until the full gathering discipline.
 
-use crate::scouting::loc_center;
 use crate::ZzzkBot;
 use bwapi::{Context, CoordinateType, UnitType};
+
+/// Maximum distance from an owned resource depot to a mineral patch (pixels).
+const MINERAL_DEPOT_RADIUS: i32 = 10 * 32;
 
 /// The macro layer: issues build orders by the current strategy.
 pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
@@ -29,7 +31,7 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 }
 
 impl<'game> ZzzkBot<'game> {
-    /// Idle workers mine a home-base mineral; depots train workers.
+    /// Idle workers mine minerals near completed owned depots; depots train workers.
     pub fn give_orders(&self, cx: Context<'_, 'game>) {
         for unit in self.own_units.iter(cx) {
             let unit_type = unit.unit_type();
@@ -41,15 +43,20 @@ impl<'game> ZzzkBot<'game> {
                     unit.return_cargo();
                     continue;
                 }
-                // Only the home base's crystals: a globally nearest mineral
-                // makes a worker released mid-map mine the enemy's patch.
-                let home = loc_center(self.scouting.my_start);
+                // Only use minerals near an existing, completed owned depot.
+                // A scout returning from the map must not start mining at an
+                // unoccupied expansion merely because those minerals are closer.
                 let closest = self
                     .minerals
                     .iter(cx)
                     .filter(|&mineral| {
-                        let pos = mineral.position();
-                        (pos.x - home.x).abs() + (pos.y - home.y).abs() < 25 * 32
+                        mineral.exists()
+                            && self.own_units.iter(cx).any(|depot| {
+                                depot.exists()
+                                    && depot.is_completed()
+                                    && depot.unit_type().is_resource_depot()
+                                    && depot.distance_to_unit(mineral) < MINERAL_DEPOT_RADIUS
+                            })
                     })
                     .min_by_key(|&mineral| unit.distance_to_unit(mineral));
                 if let Some(mineral) = closest {
