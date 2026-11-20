@@ -11,6 +11,16 @@ const MIN_DRONES: i32 = 4;
 const ARRIVAL_RADIUS: i32 = 4 * 32;
 const DANGER_RADIUS: i32 = 8 * 32;
 const START_RADIUS: i32 = 12 * 32;
+/// How close the army must stand to a guessed start to test it, and how far
+/// from it an enemy unit confirms the guess.
+const VERIFY_RADIUS: i32 = 12 * 32;
+/// Army types that travel to the enemy start and thus can verify a guess.
+const ARMY_CHECK: [UnitType; 4] = [
+    UnitType::ZERG_ZERGLING,
+    UnitType::ZERG_MUTALISK,
+    UnitType::ZERG_HYDRALISK,
+    UnitType::ZERG_ULTRALISK,
+];
 
 pub fn loc_center(loc: TilePosition) -> Position {
     Position::new(loc.x * 32 + 64, loc.y * 32 + 48)
@@ -39,6 +49,11 @@ pub struct Scouting<'game> {
     pub enemy_race: Option<Race>,
     /// The enemy start: seen buildings or the last-unscouted deduction.
     pub enemy_start: Option<TilePosition>,
+    /// `enemy_start` is a seen depot (hard evidence), not a deduction; the
+    /// scouts keep working while the start is only guessed.
+    pub pinned_start: bool,
+    /// A guessed start our army found empty, for the match log.
+    pub guess_invalidated: Option<TilePosition>,
     /// The drone walking the start locations; released back to mining when done.
     scout: Option<Unit<'game>>,
     /// Where the scout is headed right now.
@@ -68,6 +83,8 @@ impl<'game> Scouting<'game> {
             enemy,
             enemy_race: None,
             enemy_start: None,
+            pinned_start: false,
+            guess_invalidated: None,
             scout: None,
             target: None,
             overlord: None,
@@ -81,7 +98,12 @@ impl<'game> Scouting<'game> {
     /// Runs both scouts: the drone walks the starts, the overlord flies them.
     /// Both stop once the enemy race and start are known.
     pub fn update(&mut self, cx: Context<'_, 'game>, own: &UnitSet<'game>) {
-        if self.enemy_race.is_some() && self.enemy_start.is_some() {
+        // Only a pinned start (or nothing left to check) retires the scouts:
+        // a deduction often points at the wrong start, and then the army
+        // would march there forever while the enemy builds elsewhere.
+        if self.enemy_race.is_some()
+            && (self.pinned_start || (self.enemy_start.is_some() && self.unscouted.is_empty()))
+        {
             self.release();
             self.park_overlord();
             return;
@@ -124,6 +146,33 @@ impl<'game> Scouting<'game> {
 
         if self.enemy_start.is_none() && self.unscouted.len() == 1 {
             self.enemy_start = self.unscouted.iter().next().copied();
+            self.pinned_start = false;
+        }
+
+        // A guessed start must confirm itself: our standing army in an empty
+        // location refutes the guess — clear it and let the deduction pick
+        // the next candidate. A pinned start is never refuted this way.
+        if !self.pinned_start {
+            if let Some(loc) = self.enemy_start {
+                let center = loc_center(loc);
+                let army_near = own.iter(cx).any(|u| {
+                    ARMY_CHECK.contains(&u.unit_type())
+                        && u.exists()
+                        && u.is_completed()
+                        && u.distance_to_position(center) < VERIFY_RADIUS
+                });
+                let enemy_near = self.enemy.is_some_and(|enemy| {
+                    cx.game().units_in_radius(center, VERIFY_RADIUS)
+                        .any(|u| u.exists() && u.player() == enemy)
+                });
+                if army_near && !enemy_near {
+                    self.guess_invalidated = Some(loc);
+                    self.enemy_start = None;
+                    if self.unscouted.remove(&loc) {
+                        self.scouted.insert(loc);
+                    }
+                }
+            }
         }
 
         self.update_drone(cx, own);
@@ -266,8 +315,9 @@ impl<'game> Scouting<'game> {
             let pinned = self.start_locations.iter().copied().find(|&loc| {
                 loc != self.my_start && walk_dist(loc_center(loc), position) < START_RADIUS
             });
-            if pinned.is_some() && pinned != self.enemy_start {
+            if pinned.is_some() && (pinned != self.enemy_start || !self.pinned_start) {
                 self.enemy_start = pinned;
+                self.pinned_start = true;
             }
         }
 

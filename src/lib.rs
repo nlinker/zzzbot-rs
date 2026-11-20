@@ -191,6 +191,12 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
     fn on_frame(&mut self, cx: Context<'_, 'game>) {
         self.draw_stats(cx);
         self.scouting.update(cx, &self.own_units);
+        if let Some(loc) = self.scouting.guess_invalidated.take() {
+            self.log(
+                cx,
+                &format!("scouting: guess {},{} refuted, army found it empty", loc.x, loc.y),
+            );
+        }
         self.scouting.draw(cx);
         workers::defend_base(cx, self);
         macro_orders(cx, self);

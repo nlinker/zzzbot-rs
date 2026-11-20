@@ -209,8 +209,9 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 && u.exists()
                 && u.is_completed()
                 && !u.is_morphing()
-                // In combat the unit targets on its own; re-ordering would churn it.
-                && !u.is_attacking()
+                // Only standing units: in-combat and marching ones keep
+                // their orders, and re-issuing each frame spams the log.
+                && u.is_idle()
         })
         .collect();
     // The first wave strikes at double strength; later waves fire at the
