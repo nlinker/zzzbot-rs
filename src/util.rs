@@ -63,3 +63,35 @@ pub fn supply_str(supply: i32) -> String {
         format!("{}.5", supply / 2)
     }
 }
+
+/// xorshift64* RNG: enough for strategy tie-breaks, no external crates.
+pub struct Rng(u64);
+
+impl Rng {
+    /// Any seed; forced odd so the state never locks on zero.
+    pub fn new(seed: u64) -> Self {
+        Rng(seed | 1)
+    }
+
+    pub fn next_u64(&mut self) -> u64 {
+        let mut x = self.0;
+        x ^= x >> 12;
+        x ^= x << 25;
+        x ^= x >> 27;
+        self.0 = x;
+        x.wrapping_mul(0x2545_F491_4F6C_DD1D)
+    }
+
+    /// Weighted pick; weights must not all be zero.
+    pub fn pick<'a, T: Copy>(&mut self, choices: &'a [(T, u32)]) -> T {
+        let total: u32 = choices.iter().map(|&(_, w)| w).sum();
+        let mut roll = (self.next_u64() % total as u64) as u32;
+        for &(item, w) in choices {
+            if roll < w {
+                return item;
+            }
+            roll -= w;
+        }
+        choices[choices.len() - 1].0
+    }
+}

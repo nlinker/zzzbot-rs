@@ -1,15 +1,18 @@
 //! The ZZZKBot-rs bot: a StarCraft: Brood War AI module built on bwapi-rs.
 
+mod strategy;
 mod util;
 mod workers;
 
 use bwapi::{Bot, Color, Context, CoordinateType, Game, TextColor, Unit, UnitQuery, UnitSet, UnitType};
+use strategy::Strategy;
 
 pub struct ZzzkBot<'game> {
     name: String,
     /// Live set descriptors: valid for the whole match, read through a `Context`.
     pub own_units: UnitSet<'game>,
     pub minerals: UnitSet<'game>,
+    pub strategy: Strategy,
     /// Unit handles, valid for the whole match.
     created: Vec<Unit<'game>>,
     /// An owned query result, read a few items at a time across frames.
@@ -44,6 +47,12 @@ impl<'game> ZzzkBot<'game> {
             lings - lings_done,
         );
         game.draw_text(CoordinateType::Screen, 10, 26, &supply);
+
+        let order = match self.strategy.order {
+            Some(order) => format!("{}, sunkens {}", order.name(), self.strategy.num_sunkens),
+            None => String::from("standard, pending scout"),
+        };
+        game.draw_text(CoordinateType::Screen, 10, 42, &format!("BO {order}"));
     }
 
     /// Marks one unit around the base per frame; the query keeps its position
@@ -69,11 +78,21 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
 
         let me = game.self_player().expect("the bot plays a match, not a replay");
         let own_units = me.units();
+        let start = me.start_location();
+
+        // Strategy seed: same map and start tend to play out the same way.
+        let mut seed = 0xcbf2_9ce4_8422_2325u64;
+        for byte in game.map_hash().as_bytes() {
+            seed = (seed ^ *byte as u64).wrapping_mul(0x100_0000_01b3);
+        }
+        seed ^= (start.x as u64) << 32 ^ start.y as u64;
+
         let base = own_units.iter(cx).find(|u| u.unit_type().is_resource_depot());
         ZzzkBot {
             name,
             own_units,
             minerals: game.minerals(),
+            strategy: Strategy::new(seed),
             created: Vec::new(),
             around_base: base.map(|depot| game.units_in_radius(depot.position(), 320)),
             scanned: 0,
