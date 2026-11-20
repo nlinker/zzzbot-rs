@@ -65,7 +65,13 @@ impl<'game> Scouting<'game> {
     }
 
     /// Runs both scouts: the drone walks the starts, the overlord flies them.
+    /// Both stop once the enemy race and start are known.
     pub fn update(&mut self, cx: Context<'_, 'game>, own: &UnitSet<'game>) {
+        if self.enemy_race.is_some() && self.enemy_start.is_some() {
+            self.release();
+            self.park_overlord();
+            return;
+        }
         self.update_drone(cx, own);
         self.update_overlord(cx, own);
 
@@ -151,6 +157,17 @@ impl<'game> Scouting<'game> {
         }
         let Some(overlord) = self.overlord else { return };
 
+        // Enemy base pinned but race unknown: fly there for first contact.
+        if self.enemy_start.is_some() {
+            if self.ovl_target != self.enemy_start {
+                self.ovl_target = self.enemy_start;
+                let _ = overlord.move_to(loc_center(self.enemy_start.unwrap_or(self.my_start)));
+            } else if overlord.is_idle() {
+                let _ = overlord.move_to(loc_center(self.ovl_target.unwrap_or(self.my_start)));
+            }
+            return;
+        }
+
         let Some(target) = self.ovl_target else {
             self.ovl_target = self.nearest_unscouted(overlord.position(), self.target);
             if let Some(target) = self.ovl_target {
@@ -176,6 +193,11 @@ impl<'game> Scouting<'game> {
         } else if overlord.is_idle() {
             let _ = overlord.move_to(center);
         }
+    }
+
+    /// Is this unit one of the scouts.
+    pub fn is_scout(&self, unit: Unit<'game>) -> bool {
+        self.scout == Some(unit) || self.overlord == Some(unit)
     }
 
     /// Notes a newly seen enemy unit: first contact pins the race, a building
@@ -231,6 +253,17 @@ impl<'game> Scouting<'game> {
         }
         self.scout = None;
         self.target = None;
+    }
+
+    /// Sends the overlord home; its scouting is done.
+    fn park_overlord(&mut self) {
+        if let Some(overlord) = self.overlord {
+            if overlord.exists() {
+                let _ = overlord.move_to(loc_center(self.my_start));
+            }
+        }
+        self.overlord = None;
+        self.ovl_target = None;
     }
 
     /// Draws a box per start location on the map and the enemy line on screen.
