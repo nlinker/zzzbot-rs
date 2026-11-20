@@ -71,11 +71,22 @@ impl<'game> BuildEngine<'game> {
         let base = scouting.my_start;
         let builder = pick_builder(cx, own, scouting, Position::new(base.x * 32, base.y * 32))?;
 
-        let tile = game.build_location_with(unit_type, base, 64, unit_type.requires_creep());
-        if !game.can_build_here_with(tile, unit_type, Some(builder), false) {
+        // A refinery goes on a geyser, not on a free tile.
+        let tile = if unit_type.is_refinery() {
+            let home = Position::new(base.x * 32, base.y * 32);
+            game.geysers()
+                .iter(cx)
+                .filter(|&g| g.exists() && g.distance_to_position(home) < 25 * 32)
+                .map(|g| g.tile_position())
+                .find(|&tile| game.can_build_here_with(tile, unit_type, Some(builder), false))
+        } else {
+            let tile = game.build_location_with(unit_type, base, 64, unit_type.requires_creep());
+            (game.can_build_here_with(tile, unit_type, Some(builder), false)).then_some(tile)
+        };
+        let Some(tile) = tile else {
             self.last_fail.insert(unit_type, game.frame_count());
             return None;
-        }
+        };
         self.builders.insert(unit_type, builder);
         Some(Plan { unit_type, builder, tile })
     }

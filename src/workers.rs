@@ -1,11 +1,15 @@
 //! Worker and depot orders: demo mining until the full gathering discipline.
 
 use crate::army;
+use crate::strategy::BuildOrder;
 use crate::ZzzkBot;
 use bwapi::{Context, CoordinateType, UnitType};
 
 /// Maximum distance from an owned resource depot to a mineral patch (pixels).
 const MINERAL_DEPOT_RADIUS: i32 = 10 * 32;
+
+/// Drones on one geyser.
+const GAS_WORKERS: usize = 3;
 
 /// The macro layer: issues build orders by the current strategy.
 pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
@@ -26,17 +30,73 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             None => String::from("pool: waiting (minerals, throttle, builder or loc)"),
         };
         game.draw_text(CoordinateType::Screen, 10, 74, &status);
+        return;
+    }
+
+    // While the pool is still to start, its 200 minerals are the budget: an
+    // overlord morph here would eat them mid-flight of the builder.
+    army::supply_overlords(cx, bot, &counts);
+    let made = army::morph_lings(cx, bot);
+
+    manage_gas(cx, bot);
+    let extra = if made > 0 {
+        format!(", lings +{made}")
     } else {
-        // While the pool is still to start, its 200 minerals are the budget:
-        // an overlord morph here would eat them mid-flight of the builder.
-        army::supply_overlords(cx, bot, &counts);
-        let made = army::morph_lings(cx, bot);
-        game.draw_text(
-            CoordinateType::Screen,
-            10,
-            74,
-            &format!("pool: built, lings +{made}"),
-        );
+        String::new()
+    };
+    game.draw_text(
+        CoordinateType::Screen,
+        10,
+        74,
+        &format!("pool: built{extra}, gas workers {}", bot.gas_drones.len()),
+    );
+}
+
+/// Builds the extractor after the pool (not on a 4-pool all-in) and staffs
+/// it with three drones once completed.
+fn manage_gas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+    let game = cx.game();
+    // Dead drones and stale refinery leave the roster each frame.
+    bot.gas_drones.retain(|d| d.exists());
+    bot.refinery = bot
+        .own_units
+        .iter(cx)
+        .find(|u| u.exists() && u.is_completed() && u.unit_type().is_refinery());
+
+    let all_in = bot.strategy.order == Some(BuildOrder::Pool4);
+    let counts = crate::util::own_counts(&bot.own_units, cx);
+    let refineries = counts.all.get(&UnitType::ZERG_EXTRACTOR).copied().unwrap_or(0);
+    if !all_in && refineries == 0 {
+        let extractor = UnitType::ZERG_EXTRACTOR;
+        if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, extractor) {
+            if !plan.builder.build(plan.unit_type, plan.tile) {
+                bot.build.mark_fail(extractor, game.frame_count());
+            }
+        }
+    }
+
+    // Staff the completed refinery: reassign the drones nearest to it.
+    let Some(refinery) = bot.refinery else { return };
+    while bot.gas_drones.len() < GAS_WORKERS {
+        let Some(worker) = bot
+            .own_units
+            .iter(cx)
+            .filter(|u| {
+                u.exists() && u.is_completed() && !u.is_morphing()
+                    && u.unit_type() == UnitType::ZERG_DRONE
+                    && !bot.scouting.is_scout(*u)
+                    && !bot.build.is_builder(*u)
+                    && !bot.gas_drones.contains(u)
+            })
+            .min_by_key(|u| u.distance_to_unit(refinery))
+        else {
+            break;
+        };
+        if worker.gather(refinery) {
+            bot.gas_drones.push(worker);
+        } else {
+            break;
+        }
     }
 }
 
@@ -47,6 +107,15 @@ impl<'game> ZzzkBot<'game> {
             let unit_type = unit.unit_type();
             if unit_type.is_worker() || self.build.is_builder(unit) {
                 if !unit.is_idle() {
+                    continue;
+                }
+                // Gas drones cycle between the refinery and the depot.
+                if self.gas_drones.contains(&unit) {
+                    if unit.is_carrying_gas() {
+                        unit.return_cargo();
+                    } else if let Some(refinery) = self.refinery {
+                        unit.gather(refinery);
+                    }
                     continue;
                 }
                 if unit.is_carrying_gas() || unit.is_carrying_minerals() {

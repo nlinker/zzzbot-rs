@@ -13,6 +13,8 @@ use scouting::Scouting;
 use workers::macro_orders;
 use strategy::Strategy;
 
+const LOCAL_SPEED: i32 = 0;
+
 pub struct ZzzkBot<'game> {
     name: String,
     /// Live set descriptors: valid for the whole match, read through a `Context`.
@@ -21,6 +23,10 @@ pub struct ZzzkBot<'game> {
     pub strategy: Strategy,
     pub scouting: Scouting<'game>,
     pub build: BuildEngine<'game>,
+    /// Drones assigned to gas; the rest of the workers stay on minerals.
+    pub gas_drones: Vec<Unit<'game>>,
+    /// The completed refinery, if any.
+    pub refinery: Option<Unit<'game>>,
     /// Unit handles, valid for the whole match.
     created: Vec<Unit<'game>>,
     /// An owned query result, read a few items at a time across frames.
@@ -81,19 +87,24 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
         game.send_text(&format!("Hello from Rust! {name} reporting in"));
 
         // Fast-forward (single player only); raise the skip for even more speed.
-        game.set_local_speed(1);
+        game.set_local_speed(LOCAL_SPEED);
         // game.set_frame_skip(2);
 
         let me = game.self_player().expect("the bot plays a match, not a replay");
         let own_units = me.units();
         let start = me.start_location();
 
-        // Strategy seed: same map and start tend to play out the same way.
+        // Strategy seed: map and start keep runs on one map comparable; the
+        // wall-clock adds entropy so restarts reroll the opener.
         let mut seed = 0xcbf2_9ce4_8422_2325u64;
         for byte in game.map_hash().as_bytes() {
             seed = (seed ^ *byte as u64).wrapping_mul(0x100_0000_01b3);
         }
         seed ^= (start.x as u64) << 32 ^ start.y as u64;
+        seed ^= std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
 
         let base = own_units.iter(cx).find(|u| u.unit_type().is_resource_depot());
         ZzzkBot {
@@ -103,6 +114,8 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
             strategy: Strategy::new(seed),
             scouting: Scouting::new(cx, start),
             build: BuildEngine::new(),
+            gas_drones: Vec::new(),
+            refinery: None,
             created: Vec::new(),
             around_base: base.map(|depot| game.units_in_radius(depot.position(), 320)),
             scanned: 0,
