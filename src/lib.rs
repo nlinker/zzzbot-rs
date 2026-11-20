@@ -11,7 +11,7 @@ use bwapi::{Bot, Color, Context, CoordinateType, Game, TextColor, Unit, UnitQuer
 use build_order::BuildEngine;
 use scouting::Scouting;
 use workers::macro_orders;
-use strategy::Strategy;
+use strategy::{Opener, Strategy};
 
 const LOCAL_SPEED: i32 = 0;
 
@@ -67,9 +67,18 @@ impl<'game> ZzzkBot<'game> {
 
         let order = match self.strategy.order {
             Some(order) => format!("{}, sunkens {}", order.name(), self.strategy.num_sunkens),
-            None => String::from("standard, pending scout"),
+            None => String::from("awaiting scout"),
         };
-        game.draw_text(CoordinateType::Screen, 10, 42, &format!("BO {order}"));
+        let opener = match self.strategy.opener {
+            Opener::Pool4 => "4pool",
+            Opener::Standard => "standard",
+        };
+        game.draw_text(
+            CoordinateType::Screen,
+            10,
+            42,
+            &format!("opener {opener} | BO {order}"),
+        );
     }
 
     /// Marks one unit around the base per frame; the query keeps its position
@@ -110,11 +119,20 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
             .unwrap_or(0);
 
         let base = own_units.iter(cx).find(|u| u.unit_type().is_resource_depot());
+        let strategy = Strategy::new(seed);
+        game.send_text(&format!(
+            "seed {:016x}, opener {}",
+            seed,
+            match strategy.opener {
+                Opener::Pool4 => "4pool",
+                Opener::Standard => "standard",
+            }
+        ));
         ZzzkBot {
             name,
             own_units,
             minerals: game.minerals(),
-            strategy: Strategy::new(seed),
+            strategy,
             scouting: Scouting::new(cx, start),
             build: BuildEngine::new(),
             gas_drones: Vec::new(),

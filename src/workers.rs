@@ -43,22 +43,54 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     let made = army::morph_lings(cx, bot);
 
     manage_gas(cx, bot);
+    manage_hatcheries(cx, bot);
     let sunkens = manage_sunkens(cx, bot);
     let extra = if made > 0 {
         format!(", lings +{made}")
     } else {
         String::new()
     };
+    let hatch_count = counts
+        .all
+        .get(&UnitType::ZERG_HATCHERY)
+        .copied()
+        .unwrap_or(0)
+        + counts.all.get(&UnitType::ZERG_LAIR).copied().unwrap_or(0)
+        + counts.all.get(&UnitType::ZERG_HIVE).copied().unwrap_or(0);
     game.draw_text(
         CoordinateType::Screen,
         10,
         74,
         &format!(
-            "pool: built{extra}, gas workers {}, sunkens {}",
+            "pool: built{extra}, gas workers {}, hatch {hatch_count}, sunkens {}",
             bot.gas_drones.len(),
             sunkens,
         ),
     );
+}
+
+/// Second hatchery for non-all-in orders: one is not enough larva flow.
+fn manage_hatcheries<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+    if bot.strategy.order == Some(BuildOrder::Pool4) {
+        return; // all-in: minerals go into zerglings, not bases
+    }
+    let counts = crate::util::own_counts(&bot.own_units, cx);
+    let bases = counts
+        .all
+        .get(&UnitType::ZERG_HATCHERY)
+        .copied()
+        .unwrap_or(0)
+        + counts.all.get(&UnitType::ZERG_LAIR).copied().unwrap_or(0)
+        + counts.all.get(&UnitType::ZERG_HIVE).copied().unwrap_or(0);
+    if bases >= 2 {
+        return;
+    }
+    let hatchery = UnitType::ZERG_HATCHERY;
+    if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, hatchery) {
+        if !plan.builder.build(plan.unit_type, plan.tile) {
+            bot.build.mark_fail(hatchery, cx.game().frame_count());
+        }
+    }
 }
 
 /// Base defense: creep colonies up to the strategy's sunken count, finished
