@@ -37,6 +37,10 @@ impl<'game> BuildEngine<'game> {
         self.builders.remove(&unit_type);
     }
 
+    pub fn is_builder(&self, unit: Unit<'game>) -> bool {
+        self.builders.values().any(|&builder| builder == unit)
+    }
+
     /// Picks a builder and tile when retry allows. The caller builds.
     pub fn plan(
         &mut self,
@@ -58,7 +62,7 @@ impl<'game> BuildEngine<'game> {
 
         // Already on it: the reserved builder walks there or morphs.
         if let Some(&builder) = self.builders.get(&unit_type) {
-            if builder.exists() && builder.build_type() == unit_type {
+            if builder.exists() && builder.unit_type() == UnitType::ZERG_DRONE {
                 return None;
             }
             self.builders.remove(&unit_type);
