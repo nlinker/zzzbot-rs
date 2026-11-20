@@ -76,7 +76,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
         game.send_text(&format!("Hello from Rust! {name} reporting in"));
 
         // Fast-forward (single player only); raise the skip for even more speed.
-        game.set_local_speed(0);
+        game.set_local_speed(1);
         //game.set_frame_skip(2);
 
         let me = game.self_player().expect("the bot plays a match, not a replay");
@@ -111,6 +111,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
 
     fn on_frame(&mut self, cx: Context<'_, 'game>) {
         self.draw_stats(cx);
+        self.scouting.update(cx, &self.own_units);
         self.scouting.draw(cx);
         self.give_orders(cx);
         self.scan_base(cx.game());
