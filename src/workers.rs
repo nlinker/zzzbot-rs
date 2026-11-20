@@ -69,6 +69,16 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             sunkens,
         ),
     );
+    // Diagnostic: build-engine state per pending type (drop once pipeline is stable).
+    let dbg = format!(
+        "dbg nest {} colony {} hatch {} | m {} g {}",
+        bot.build.debug_line(UnitType::ZERG_QUEENS_NEST, game.frame_count()),
+        bot.build.debug_line(UnitType::ZERG_CREEP_COLONY, game.frame_count()),
+        bot.build.debug_line(UnitType::ZERG_HATCHERY, game.frame_count()),
+        me.minerals(),
+        me.gas(),
+    );
+    game.draw_text(CoordinateType::Screen, 10, 92, &dbg);
 }
 
 /// Second hatchery for non-all-in orders: one is not enough larva flow.
@@ -127,20 +137,28 @@ fn manage_lair<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         return;
     }
     let game = cx.game();
+    if !bot.build.can_retry(UnitType::ZERG_LAIR, game.frame_count()) {
+        return;
+    }
+    let me = game.self_player().expect("the bot plays a match, not a replay");
+    if me.minerals() < UnitType::ZERG_LAIR.mineral_price() {
+        return;
+    }
     if let Some(hatchery) = bot.own_units.iter(cx).find(|u| {
         u.exists() && u.is_completed() && !u.is_morphing()
             && u.unit_type() == UnitType::ZERG_HATCHERY
     }) {
         if !hatchery.morph(UnitType::ZERG_LAIR) {
-            game.send_text(&format!("lair morph failed: {:?}", game.last_error()));
+            bot.build.mark_fail(UnitType::ZERG_LAIR, game.frame_count());
+            game.send_text(&format!("lair morph failed: {}", game.last_error().name()));
         }
     }
 }
 
 /// Tier-3 chain for the muta order: a drone-built queen's nest once the lair
-/// is up, then a hive when the nest completes. Hive itself enables nothing
-/// yet — ultra cavern is a later step — but the morph takes long, so it
-/// starts early.
+/// is up, then the lair morphs on to a hive when the nest completes. Hive
+/// itself enables nothing yet — ultra cavern is a later step — but the morph
+/// takes long, so it starts early.
 fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     if bot.strategy.order != Some(BuildOrder::MutaRush) {
         return;
@@ -169,13 +187,22 @@ fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     if nests > 0 && hives == 0 {
         let nest_done =
             counts.completed.get(&UnitType::ZERG_QUEENS_NEST).copied().unwrap_or(0) > 0;
-        if nest_done {
-            if let Some(nest) = bot.own_units.iter(cx).find(|u| {
+        if nest_done && bot.build.can_retry(UnitType::ZERG_HIVE, game.frame_count()) {
+            let me = game.self_player().expect("the bot plays a match, not a replay");
+            if me.minerals() < UnitType::ZERG_HIVE.mineral_price()
+                || me.gas() < UnitType::ZERG_HIVE.gas_price()
+            {
+                return;
+            }
+            // whatBuilds of the hive is the lair; the nest is only a
+            // prerequisite, morphing it fails with Incompatible_UnitType.
+            if let Some(lair) = bot.own_units.iter(cx).find(|u| {
                 u.exists() && u.is_completed() && !u.is_morphing()
-                    && u.unit_type() == UnitType::ZERG_QUEENS_NEST
+                    && u.unit_type() == UnitType::ZERG_LAIR
             }) {
-                if !nest.morph(UnitType::ZERG_HIVE) {
-                    game.send_text(&format!("hive morph failed: {:?}", game.last_error()));
+                if !lair.morph(UnitType::ZERG_HIVE) {
+                    bot.build.mark_fail(UnitType::ZERG_HIVE, game.frame_count());
+                    game.send_text(&format!("hive morph failed: {}", game.last_error().name()));
                 }
             }
         }
@@ -287,6 +314,11 @@ impl<'game> ZzzkBot<'game> {
             let unit_type = unit.unit_type();
             if unit_type.is_worker() || self.build.is_builder(unit) {
                 if !unit.is_idle() {
+                    continue;
+                }
+                // The plan layer drives its reserved builders; a mining order
+                // here would override the fresh build command.
+                if self.build.is_builder(unit) {
                     continue;
                 }
                 // Gas drones cycle between the refinery and the depot.

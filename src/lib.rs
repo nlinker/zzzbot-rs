@@ -13,7 +13,7 @@ use scouting::Scouting;
 use workers::macro_orders;
 use strategy::{Opener, Strategy};
 
-const LOCAL_SPEED: i32 = 0;
+const LOCAL_SPEED: i32 = 1;
 
 pub struct ZzzkBot<'game> {
     name: String,

@@ -110,8 +110,38 @@ impl<'game> BuildEngine<'game> {
         self.builders.remove(&unit_type);
     }
 
+    /// True when enough frames passed since the last failed attempt.
+    pub fn can_retry(&self, unit_type: UnitType, frame: i32) -> bool {
+        match self.last_fail.get(&unit_type) {
+            Some(&failed_at) => frame >= failed_at + RETRY_FRAMES,
+            None => true,
+        }
+    }
+
     pub fn is_builder(&self, unit: Unit<'game>) -> bool {
         self.builders.values().any(|&builder| builder == unit)
+    }
+
+    /// Overlay state of a pending build: throttle phase and reserved builder.
+    pub fn debug_line(&self, unit_type: UnitType, frame: i32) -> String {
+        let throttle = match self.last_fail.get(&unit_type) {
+            Some(&failed_at) => {
+                let left = failed_at + RETRY_FRAMES - frame;
+                if left > 0 {
+                    format!("wait {left}")
+                } else {
+                    String::from("ready")
+                }
+            }
+            None => String::from("ready"),
+        };
+        let builder = self
+            .builders
+            .get(&unit_type)
+            .filter(|b| b.exists())
+            .map(|b| format!(" builder #{}", b.id()))
+            .unwrap_or_default();
+        format!("[{throttle}{builder}]")
     }
 
     /// Picks a builder and tile when retry allows. The caller builds.
@@ -127,15 +157,20 @@ impl<'game> BuildEngine<'game> {
         if me.minerals() < unit_type.mineral_price() {
             return None;
         }
-        if let Some(&failed_at) = self.last_fail.get(&unit_type) {
-            if game.frame_count() < failed_at + RETRY_FRAMES {
-                return None;
-            }
+        if !self.can_retry(unit_type, game.frame_count()) {
+            return None;
         }
 
-        // Already on it: the reserved builder walks there or morphs.
+        // Already on it: the reserved builder walks there or morphs. If it
+        // idles instead, the order died (blocked path, lost target): drop the
+        // reservation and let the throttle schedule a retry, else it wedges.
         if let Some(&builder) = self.builders.get(&unit_type) {
             if builder.exists() && builder.unit_type() == UnitType::ZERG_DRONE {
+                if !builder.is_idle() {
+                    return None;
+                }
+                self.builders.remove(&unit_type);
+                self.last_fail.insert(unit_type, game.frame_count());
                 return None;
             }
             self.builders.remove(&unit_type);
