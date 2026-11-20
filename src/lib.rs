@@ -103,6 +103,12 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
         }
     }
 
+    fn on_end(self, cx: Context<'_, 'game>, is_winner: bool) {
+        let game = cx.game();
+        let result = if is_winner { "won" } else { "lost" };
+        game.send_text(&format!("{} {result} at frame {}", self.name, game.frame_count()));
+    }
+
     fn on_frame(&mut self, cx: Context<'_, 'game>) {
         self.draw_stats(cx);
         self.scouting.draw(cx);
@@ -112,12 +118,6 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
 
     fn on_unit_create(&mut self, _cx: Context<'_, 'game>, unit: Unit<'game>) {
         self.created.push(unit);
-    }
-
-    fn on_end(self, cx: Context<'_, 'game>, is_winner: bool) {
-        let game = cx.game();
-        let result = if is_winner { "won" } else { "lost" };
-        game.send_text(&format!("{} {result} at frame {}", self.name, game.frame_count()));
     }
 }
 
