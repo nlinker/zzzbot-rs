@@ -60,6 +60,7 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     let made = army::morph_lings(cx, bot);
     army::morph_mutas(cx, bot);
     army::morph_hydras(cx, bot);
+    army::morph_ultras(cx, bot);
 
     manage_gas(cx, bot);
     manage_hatcheries(cx, bot);
@@ -67,6 +68,7 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     manage_tier3(cx, bot);
     manage_spire(cx, bot);
     manage_den(cx, bot);
+    manage_cavern(cx, bot);
     let sunkens = manage_sunkens(cx, bot);
     let extra = if made > 0 {
         format!(", lings +{made}")
@@ -265,6 +267,28 @@ fn manage_den<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     let den = UnitType::ZERG_HYDRALISK_DEN;
     if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, den) {
         issue_build(cx, bot, plan, "den");
+    }
+}
+
+/// Builds the ultralisk cavern for the late game once the hive is complete
+/// (muta order: its tier-3 chain already reaches the hive).
+fn manage_cavern<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+    if bot.strategy.order != Some(BuildOrder::MutaRush) {
+        return;
+    }
+    let counts = crate::util::own_counts(&bot.own_units, cx);
+    let hive_done = counts.completed.get(&UnitType::ZERG_HIVE).copied().unwrap_or(0) > 0;
+    let caverns = counts
+        .all
+        .get(&UnitType::ZERG_ULTRALISK_CAVERN)
+        .copied()
+        .unwrap_or(0);
+    if !hive_done || caverns > 0 {
+        return;
+    }
+    let cavern = UnitType::ZERG_ULTRALISK_CAVERN;
+    if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, cavern) {
+        issue_build(cx, bot, plan, "cavern");
     }
 }
 

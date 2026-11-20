@@ -70,8 +70,10 @@ impl<'game> ZzzkBot<'game> {
         let mutas_done = counts.completed.get(&UnitType::ZERG_MUTALISK).copied().unwrap_or(0);
         let hydras = counts.all.get(&UnitType::ZERG_HYDRALISK).copied().unwrap_or(0);
         let hydras_done = counts.completed.get(&UnitType::ZERG_HYDRALISK).copied().unwrap_or(0);
+        let ultras = counts.all.get(&UnitType::ZERG_ULTRALISK).copied().unwrap_or(0);
+        let ultras_done = counts.completed.get(&UnitType::ZERG_ULTRALISK).copied().unwrap_or(0);
         let supply = format!(
-            "U {}/{}, lings {} (+{} in eggs), mutas {} (+{} in eggs), hydras {} (+{} in eggs)",
+            "U {}/{}, lings {} (+{} in eggs), mutas {} (+{}), hydras {} (+{}), ultras {} (+{})",
             util::supply_str(counts.supply_used),
             util::supply_str(me.supply_total()),
             lings_done,
@@ -80,6 +82,8 @@ impl<'game> ZzzkBot<'game> {
             mutas - mutas_done,
             hydras_done,
             hydras - hydras_done,
+            ultras_done,
+            ultras - ultras_done,
         );
         game.draw_text(CoordinateType::Screen, 10, 26, &supply);
 
