@@ -61,3 +61,43 @@ pub fn morph_lings<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> u
     }
     made
 }
+
+/// Muta production for the muta rush: idle larvae become mutalisks while
+/// minerals and gas last.
+pub fn morph_mutas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+    if bot.strategy.order != Some(BuildOrder::MutaRush) {
+        return;
+    }
+    // One count covers both morphing and finished spires: production starts
+    // once the spire is on its way.
+    let spires = crate::util::own_counts(&bot.own_units, cx)
+        .all
+        .get(&UnitType::ZERG_SPIRE)
+        .copied()
+        .unwrap_or(0);
+    if spires == 0 {
+        return;
+    }
+    let game = cx.game();
+    let me = game.self_player().expect("the bot plays a match, not a replay");
+    let mut made = 0;
+    for larva in bot
+        .own_units
+        .iter(cx)
+        .filter(|u| u.exists() && u.is_idle() && u.unit_type() == UnitType::ZERG_LARVA)
+    {
+        if me.minerals() < UnitType::ZERG_MUTALISK.mineral_price()
+            || me.gas() < UnitType::ZERG_MUTALISK.gas_price()
+        {
+            break;
+        }
+        if larva.morph(UnitType::ZERG_MUTALISK) {
+            made += 1;
+        } else {
+            break;
+        }
+    }
+    if made > 0 {
+        bot.log(cx, &format!("mutas: +{made}"));
+    }
+}

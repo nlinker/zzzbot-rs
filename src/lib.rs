@@ -15,7 +15,7 @@ use scouting::Scouting;
 use workers::macro_orders;
 use strategy::{Opener, Strategy};
 
-const LOCAL_SPEED: i32 = 1;
+const LOCAL_SPEED: i32 = 0;
 
 pub struct ZzzkBot<'game> {
     name: String,
@@ -66,12 +66,16 @@ impl<'game> ZzzkBot<'game> {
         let me = game.self_player().expect("the bot plays a match, not a replay");
         let lings = counts.all.get(&UnitType::ZERG_ZERGLING).copied().unwrap_or(0);
         let lings_done = counts.completed.get(&UnitType::ZERG_ZERGLING).copied().unwrap_or(0);
+        let mutas = counts.all.get(&UnitType::ZERG_MUTALISK).copied().unwrap_or(0);
+        let mutas_done = counts.completed.get(&UnitType::ZERG_MUTALISK).copied().unwrap_or(0);
         let supply = format!(
-            "U {}/{}, lings {} (+{} in eggs)",
+            "U {}/{}, lings {} (+{} in eggs), mutas {} (+{} in eggs)",
             util::supply_str(counts.supply_used),
             util::supply_str(me.supply_total()),
             lings_done,
             lings - lings_done,
+            mutas_done,
+            mutas - mutas_done,
         );
         game.draw_text(CoordinateType::Screen, 10, 26, &supply);
 

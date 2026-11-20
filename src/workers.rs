@@ -58,11 +58,13 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     build_order::extractor_trick(cx, bot, free);
     army::supply_overlords(cx, bot, &counts);
     let made = army::morph_lings(cx, bot);
+    army::morph_mutas(cx, bot);
 
     manage_gas(cx, bot);
     manage_hatcheries(cx, bot);
     manage_lair(cx, bot);
     manage_tier3(cx, bot);
+    manage_spire(cx, bot);
     let sunkens = manage_sunkens(cx, bot);
     let extra = if made > 0 {
         format!(", lings +{made}")
@@ -119,9 +121,6 @@ fn manage_hatcheries<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         issue_build(cx, bot, plan, "hatchery");
     }
 }
-
-/// Base defense: creep colonies up to the strategy's sunken count, finished
-/// ones morphed into sunken colonies. Returns that count, colonies included.
 
 /// Morphs the first hatchery into a lair once the pool and gas are up and
 /// the order wants tier-2 tech (mutas and hydras both need it).
@@ -225,6 +224,23 @@ fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 }
             }
         }
+    }
+}
+
+/// Builds the spire for the muta order once the lair is complete.
+fn manage_spire<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+    if bot.strategy.order != Some(BuildOrder::MutaRush) {
+        return;
+    }
+    let counts = crate::util::own_counts(&bot.own_units, cx);
+    let lair_done = counts.completed.get(&UnitType::ZERG_LAIR).copied().unwrap_or(0) > 0;
+    let spires = counts.all.get(&UnitType::ZERG_SPIRE).copied().unwrap_or(0);
+    if !lair_done || spires > 0 {
+        return;
+    }
+    let spire = UnitType::ZERG_SPIRE;
+    if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, spire) {
+        issue_build(cx, bot, plan, "spire");
     }
 }
 
