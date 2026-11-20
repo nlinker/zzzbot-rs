@@ -87,25 +87,37 @@ impl<'game> Scouting<'game> {
             return;
         }
 
-        // Check threats every frame, not only when on_unit_show fires.
+        // Check threats every frame, not only when on_unit_show fires; collect
+        // the visible depots to tell occupied starts from cleared ones.
+        let mut enemy_depots: Vec<Position> = Vec::new();
         if let Some(enemy) = self.enemy {
             for unit in cx.game().all_units().iter(cx) {
                 if unit.exists() && unit.is_visible() && unit.player() == enemy {
+                    if unit.unit_type().is_resource_depot()
+                        && !unit.unit_type().is_flying_building()
+                    {
+                        enemy_depots.push(unit.position());
+                    }
                     self.observe_enemy(unit);
                 }
             }
         }
 
-        // A start is cleared only when its building area can actually be observed.
-        // Merely moving within four tiles is not proof of an empty start.
+        // A start is cleared only when its building area can actually be
+        // observed: merely moving within four tiles is not proof of an empty
+        // start, and tiles visible under an enemy depot mean occupied.
         for &loc in &self.start_locations {
-            if loc == self.my_start || self.unsafe_starts.contains(&loc) {
+            if loc == self.my_start || self.unsafe_starts.contains(&loc)
+                || self.scouted.contains(&loc)
+            {
                 continue;
             }
             let fully_visible = (0..4).all(|dx| (0..3).all(|dy| {
                 cx.game().is_visible(TilePosition::new(loc.x + dx, loc.y + dy))
             }));
-            if fully_visible && self.unscouted.remove(&loc) {
+            let occupied = enemy_depots.iter()
+                .any(|&pos| walk_dist(loc_center(loc), pos) < START_RADIUS);
+            if fully_visible && !occupied && self.unscouted.remove(&loc) {
                 self.scouted.insert(loc);
             }
         }
@@ -247,13 +259,16 @@ impl<'game> Scouting<'game> {
         }
 
         let position = unit.position();
-        // Observing a building near a start is evidence of occupation;
-        // a mobile unit alone isn't sufficient to pin the start.
-        if self.enemy_start.is_none() && unit.unit_type().is_resource_depot()
-            && !unit.unit_type().is_flying_building() {
-            self.enemy_start = self.start_locations.iter().copied().find(|&loc| {
+        // Observing a depot near a start is direct evidence of occupation; a
+        // mobile unit alone isn't. The pin may replace the last-unscouted
+        // guess, which can point at the wrong start.
+        if unit.unit_type().is_resource_depot() && !unit.unit_type().is_flying_building() {
+            let pinned = self.start_locations.iter().copied().find(|&loc| {
                 loc != self.my_start && walk_dist(loc_center(loc), position) < START_RADIUS
             });
+            if pinned.is_some() && pinned != self.enemy_start {
+                self.enemy_start = pinned;
+            }
         }
 
         if self.overlord.is_some_and(|ovl| ovl.exists()
