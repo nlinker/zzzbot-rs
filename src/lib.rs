@@ -189,6 +189,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
         self.draw_stats(cx);
         self.scouting.update(cx, &self.own_units);
         self.scouting.draw(cx);
+        workers::defend_base(cx, self);
         macro_orders(cx, self);
         self.give_orders(cx);
         self.scan_base(cx.game());

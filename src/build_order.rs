@@ -2,10 +2,9 @@
 
 use std::collections::HashMap;
 
-use crate::scouting::Scouting;
 use crate::strategy::Opener;
 use crate::ZzzkBot;
-use bwapi::{Context, Position, TilePosition, Unit, UnitSet, UnitType};
+use bwapi::{Context, Position, TilePosition, Unit, UnitType};
 
 /// Frames between retries after a failed placement.
 const RETRY_FRAMES: i32 = 24;
@@ -110,6 +109,10 @@ pub struct BuildEngine<'game> {
     /// travelling builder reads neither `is_constructing` nor an egg, so
     /// without this each frame would send a fresh drone to the same tile.
     builders: HashMap<UnitType, Unit<'game>>,
+    /// Reserved tiles, parallel to `builders`: two walking builders in the
+    /// same frame both pass `can_build_here` on the same free tile, and one
+    /// of them arrives to find it taken and wedges.
+    tiles: HashMap<UnitType, TilePosition>,
 }
 
 impl<'game> BuildEngine<'game> {
@@ -117,10 +120,17 @@ impl<'game> BuildEngine<'game> {
         BuildEngine::default()
     }
 
+    /// Drops the reservation of a type: the walking builder or its tile no
+    /// longer holds the queue slot.
+    fn release(&mut self, unit_type: UnitType) {
+        self.builders.remove(&unit_type);
+        self.tiles.remove(&unit_type);
+    }
+
     /// Marks an attempt failed (the build order was rejected) to throttle retries.
     pub fn mark_fail(&mut self, unit_type: UnitType, frame: i32) {
         self.last_fail.insert(unit_type, frame);
-        self.builders.remove(&unit_type);
+        self.release(unit_type);
     }
 
     /// True when enough frames passed since the last failed attempt.
@@ -156,81 +166,92 @@ impl<'game> BuildEngine<'game> {
             .unwrap_or_default();
         format!("[{throttle}{builder}]")
     }
-
-    /// Picks a builder and tile when retry allows. The caller builds.
-    pub fn plan(
-        &mut self,
-        cx: Context<'_, 'game>,
-        own: &UnitSet<'game>,
-        scouting: &Scouting<'game>,
-        unit_type: UnitType,
-    ) -> Option<Plan<'game>> {
-        let game = cx.game();
-        let me = game.self_player().expect("the bot plays a match, not a replay");
-        if me.minerals() < unit_type.mineral_price() || me.gas() < unit_type.gas_price() {
-            return None;
-        }
-        if !self.can_retry(unit_type, game.frame_count()) {
-            return None;
-        }
-
-        // Already on it: the reserved builder walks there or morphs. If it
-        // idles instead, the order died (blocked path, lost target): drop the
-        // reservation and let the throttle schedule a retry, else it wedges.
-        if let Some(&builder) = self.builders.get(&unit_type) {
-            if builder.exists() && builder.unit_type() == UnitType::ZERG_DRONE {
-                if !builder.is_idle() {
-                    return None;
-                }
-                self.builders.remove(&unit_type);
-                self.last_fail.insert(unit_type, game.frame_count());
-                return None;
-            }
-            self.builders.remove(&unit_type);
-        }
-
-        let base = scouting.my_start;
-        let builder = pick_builder(cx, own, scouting, Position::new(base.x * 32, base.y * 32))?;
-
-        // A refinery goes on a geyser, not on a free tile. `geysers()` order
-        // is arbitrary, so among the candidates pick the one nearest home —
-        // otherwise the extractor may land on a distant expansion geyser and
-        // gas income crawls for the whole match.
-        let tile = if unit_type.is_refinery() {
-            let home = Position::new(base.x * 32, base.y * 32);
-            game.geysers()
-                .iter(cx)
-                .filter(|&g| g.exists() && g.distance_to_position(home) < 25 * 32)
-                .filter(|&g| {
-                    game.can_build_here_with(g.tile_position(), unit_type, Some(builder), false)
-                })
-                .min_by_key(|&g| g.distance_to_position(home))
-                .map(|g| g.tile_position())
-        } else {
-            let tile = game.build_location_with(unit_type, base, 64, unit_type.requires_creep());
-            (game.can_build_here_with(tile, unit_type, Some(builder), false)).then_some(tile)
-        };
-        let Some(tile) = tile else {
-            self.last_fail.insert(unit_type, game.frame_count());
-            return None;
-        };
-        self.builders.insert(unit_type, builder);
-        Some(Plan { unit_type, builder, tile })
-    }
 }
 
-/// Nearest free drone: not a scout, not morphing, not already building.
+/// Picks a builder and tile when retry allows. The caller builds. The filters
+/// exclude every drone with another job: a geyser stripped of its workers
+/// stalls the gas income for the rest of the match.
+pub fn plan<'game>(
+    cx: Context<'_, 'game>,
+    bot: &mut ZzzkBot<'game>,
+    unit_type: UnitType,
+) -> Option<Plan<'game>> {
+    let game = cx.game();
+    let me = game.self_player().expect("the bot plays a match, not a replay");
+    if me.minerals() < unit_type.mineral_price() || me.gas() < unit_type.gas_price() {
+        return None;
+    }
+    if !bot.build.can_retry(unit_type, game.frame_count()) {
+        return None;
+    }
+
+    // Already on it: the reserved builder walks there or morphs. If it idles
+    // instead, the order died (blocked path, lost target): drop the
+    // reservation and let the throttle schedule a retry, else it wedges.
+    if let Some(&builder) = bot.build.builders.get(&unit_type) {
+        if builder.exists() && builder.unit_type() == UnitType::ZERG_DRONE {
+            if !builder.is_idle() {
+                return None;
+            }
+            bot.build.release(unit_type);
+            bot.build.last_fail.insert(unit_type, game.frame_count());
+            return None;
+        }
+        bot.build.release(unit_type);
+    }
+
+    let base = bot.scouting.my_start;
+    let builder = pick_builder(cx, bot, Position::new(base.x * 32, base.y * 32))?;
+
+    // A refinery goes on a geyser, not on a free tile. `geysers()` order is
+    // arbitrary, so among the candidates pick the one nearest home —
+    // otherwise the extractor may land on a distant expansion geyser and gas
+    // income crawls for the whole match.
+    let tile = if unit_type.is_refinery() {
+        let home = Position::new(base.x * 32, base.y * 32);
+        game.geysers()
+            .iter(cx)
+            .filter(|&g| g.exists() && g.distance_to_position(home) < 25 * 32)
+            .filter(|&g| {
+                game.can_build_here_with(g.tile_position(), unit_type, Some(builder), false)
+            })
+            .filter(|&g| !bot.build.tiles.values().any(|&t| t == g.tile_position()))
+            .min_by_key(|&g| g.distance_to_position(home))
+            .map(|g| g.tile_position())
+    } else {
+        let tile = game.build_location_with(unit_type, base, 64, unit_type.requires_creep());
+        (game.can_build_here_with(tile, unit_type, Some(builder), false))
+            .then_some(tile)
+            // Two walking builders in the same frame both pass
+            // `can_build_here` on one free tile; the loser arrives to find
+            // it taken and wedges with a dead order.
+            .filter(|tile| !bot.build.tiles.values().any(|&t| t == *tile))
+    };
+    let Some(tile) = tile else {
+        bot.build.last_fail.insert(unit_type, game.frame_count());
+        return None;
+    };
+    bot.build.builders.insert(unit_type, builder);
+    bot.build.tiles.insert(unit_type, tile);
+    Some(Plan { unit_type, builder, tile })
+}
+
+/// Nearest free drone: not a scout, not morphing, not already building, not
+/// a gas worker, not the trick builder.
 fn pick_builder<'game>(
     cx: Context<'_, 'game>,
-    own: &UnitSet<'game>,
-    scouting: &Scouting<'game>,
+    bot: &ZzzkBot<'game>,
     near: Position,
 ) -> Option<Unit<'game>> {
-    own.iter(cx)
+    bot.own_units
+        .iter(cx)
         .filter(|u| {
             u.exists() && u.is_completed() && !u.is_morphing() && !u.is_constructing()
                 && u.unit_type() == UnitType::ZERG_DRONE
-                && !scouting.is_scout(*u)
+                && !bot.scouting.is_scout(*u)
+                && !bot.build.is_builder(*u)
+                && !bot.gas_drones.contains(u)
+                && bot.trick_builder != Some(*u)
         })
         .min_by_key(|u| u.distance_to_position(near))
 }

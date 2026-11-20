@@ -1,13 +1,17 @@
-//! Worker and depot orders: demo mining until the full gathering discipline.
+﻿//! Worker and depot orders: demo mining until the full gathering discipline.
 
 use crate::army;
 use crate::build_order;
 use crate::strategy::BuildOrder;
 use crate::ZzzkBot;
-use bwapi::{Context, CoordinateType, UpgradeType, UnitType};
+use bwapi::{Context, CoordinateType, Position, UpgradeType, UnitType};
 
 /// Maximum distance from an owned resource depot to a mineral patch (pixels).
 const MINERAL_DEPOT_RADIUS: i32 = 10 * 32;
+
+/// Worker-rush defense: how far from the start a ground unit counts as a
+/// raid on the mineral line (pixels).
+const RAID_RADIUS: i32 = 10 * 32;
 
 /// Drones on one geyser.
 const GAS_WORKERS: usize = 3;
@@ -47,7 +51,7 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         // running while the pool is absent or dead — an early return here
         // once froze a whole base (no gas refill, no sunkens) for a match.
         let pool = UnitType::ZERG_SPAWNING_POOL;
-        if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, pool) {
+        if let Some(plan) = build_order::plan(cx, bot, pool) {
             issue_build(cx, bot, plan, "pool");
         }
     }
@@ -99,10 +103,11 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     );
     // Diagnostic: build-engine state per pending type (drop once pipeline is stable).
     let dbg = format!(
-        "dbg nest {} colony {} hatch {} | m {} g {}",
+        "dbg nest {} colony {} hatch {} spire {} | m {} g {}",
         bot.build.debug_line(UnitType::ZERG_QUEENS_NEST, game.frame_count()),
         bot.build.debug_line(UnitType::ZERG_CREEP_COLONY, game.frame_count()),
         bot.build.debug_line(UnitType::ZERG_HATCHERY, game.frame_count()),
+        bot.build.debug_line(UnitType::ZERG_SPIRE, game.frame_count()),
         me.minerals(),
         me.gas(),
     );
@@ -130,7 +135,7 @@ fn manage_hatcheries<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         return;
     }
     let hatchery = UnitType::ZERG_HATCHERY;
-    if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, hatchery) {
+    if let Some(plan) = build_order::plan(cx, bot, hatchery) {
         issue_build(cx, bot, plan, "hatchery");
     }
 }
@@ -222,7 +227,7 @@ fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     let den_wait = bot.strategy.order == Some(BuildOrder::HydraRush) && dens == 0;
     if lair_done && !den_wait && nests == 0 {
         let nest = UnitType::ZERG_QUEENS_NEST;
-        if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, nest) {
+        if let Some(plan) = build_order::plan(cx, bot, nest) {
             issue_build(cx, bot, plan, "queen's nest");
         }
         return;
@@ -235,6 +240,16 @@ fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             if me.minerals() < UnitType::ZERG_HIVE.mineral_price()
                 || me.gas() < UnitType::ZERG_HIVE.gas_price()
             {
+                if game.frame_count() % 300 == 0 {
+                    bot.log(
+                        cx,
+                        &format!(
+                            "hive blocked: m {}, g {}",
+                            me.minerals(),
+                            me.gas()
+                        ),
+                    );
+                }
                 return;
             }
             // whatBuilds of the hive is the lair; the nest is only a
@@ -257,6 +272,7 @@ fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 
 /// Builds the spire for the muta order once the lair is complete.
 fn manage_spire<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+    let game = cx.game();
     if bot.strategy.order != Some(BuildOrder::MutaRush) {
         return;
     }
@@ -267,8 +283,20 @@ fn manage_spire<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         return;
     }
     let spire = UnitType::ZERG_SPIRE;
-    if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, spire) {
+    if let Some(plan) = build_order::plan(cx, bot, spire) {
         issue_build(cx, bot, plan, "spire");
+    } else if game.frame_count() % 300 == 0 {
+        // Every rejection path in `plan` is silent; this is the only window
+        // into "why is there no spire".
+        let me = game.self_player().expect("the bot plays a match, not a replay");
+        bot.log(
+            cx,
+            &format!(
+                "spire blocked: m {}, g {}, lair_done {lair_done}",
+                me.minerals(),
+                me.gas()
+            ),
+        );
     }
 }
 
@@ -289,7 +317,7 @@ fn manage_den<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         return;
     }
     let den = UnitType::ZERG_HYDRALISK_DEN;
-    if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, den) {
+    if let Some(plan) = build_order::plan(cx, bot, den) {
         issue_build(cx, bot, plan, "den");
     }
 }
@@ -311,7 +339,7 @@ fn manage_cavern<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         return;
     }
     let cavern = UnitType::ZERG_ULTRALISK_CAVERN;
-    if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, cavern) {
+    if let Some(plan) = build_order::plan(cx, bot, cavern) {
         issue_build(cx, bot, plan, "cavern");
     }
 }
@@ -410,7 +438,7 @@ fn manage_sunkens<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> i3
     // 200 minerals come first.
     if have < want && pool_done {
         let colony = UnitType::ZERG_CREEP_COLONY;
-        if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, colony) {
+        if let Some(plan) = build_order::plan(cx, bot, colony) {
             issue_build(cx, bot, plan, "creep colony");
         }
     }
@@ -452,7 +480,7 @@ fn manage_gas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         counts.all.get(&UnitType::ZERG_SPAWNING_POOL).copied().unwrap_or(0) > 0;
     if !all_in && have_pool && refineries == 0 {
         let extractor = UnitType::ZERG_EXTRACTOR;
-        if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, extractor) {
+        if let Some(plan) = build_order::plan(cx, bot, extractor) {
             issue_build(cx, bot, plan, "extractor");
         }
     }
@@ -479,6 +507,64 @@ fn manage_gas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             bot.gas_drones.push(worker);
         } else {
             break;
+        }
+    }
+}
+
+/// Worker-rush defense: enemy ground units inside the mineral line pull the
+/// nearest miners into the fight, two per raider. Gas drones keep the geyser
+/// running (the gather order in `give_orders` would override them anyway);
+/// pulled drones go idle once the raiders die and return to mining.
+pub fn defend_base<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+    let game = cx.game();
+    let Some(enemy) = bot.scouting.enemy else { return };
+    let base = bot.scouting.my_start;
+    let home = Position::new(base.x * 32, base.y * 32);
+    let raiders: Vec<_> = game
+        .units_in_radius(home, RAID_RADIUS)
+        .filter(|u| {
+            u.exists() && u.player() == enemy && !u.is_flying()
+                && u.unit_type() != UnitType::ZERG_OVERLORD
+        })
+        .collect();
+    if raiders.is_empty() {
+        return;
+    }
+    let announced = game.frame_count() % 120 == 0;
+    if announced {
+        bot.log(cx, &format!("defend: {} raiders in the mineral line", raiders.len()));
+    }
+    let need = (raiders.len() as i32 * 2).min(10);
+    let mut fighting = 0;
+    for unit in bot.own_units.iter(cx) {
+        if fighting >= need {
+            break;
+        }
+        if !unit.exists()
+            || unit.unit_type() != UnitType::ZERG_DRONE
+            || unit.is_morphing()
+            || bot.build.is_builder(unit)
+            || bot.scouting.is_scout(unit)
+            || bot.trick_builder == Some(unit)
+            || bot.gas_drones.contains(&unit)
+        {
+            continue;
+        }
+        let Some(target) = raiders
+            .iter()
+            .copied()
+            .min_by_key(|&r| unit.distance_to_unit(r))
+        else {
+            break;
+        };
+        if unit.attack_unit(target) {
+            fighting += 1;
+            if announced {
+                bot.log(
+                    cx,
+                    &format!("defend: drone #{} attacks #{}", unit.id(), target.id()),
+                );
+            }
         }
     }
 }
