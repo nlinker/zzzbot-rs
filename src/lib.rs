@@ -51,9 +51,10 @@ impl<'game> ZzzkBot<'game> {
     fn draw_stats(&self, cx: Context<'_, 'game>) {
         let game = cx.game();
         let message = format!(
-            "{}Frame {}{}, own units {}, created {}, scanned {}",
+            "{}Frame {} (build {}){}, own units {}, created {}, scanned {}",
             TextColor::Green,
             game.frame_count(),
+            env!("BUILD_UNIX_TIME"),
             TextColor::Default,
             self.own_units.len(cx),
             self.created.len(),
@@ -150,7 +151,11 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
         let logger = Logger::open();
         logger.line(
             game.frame_count(),
-            &format!("start: opener {opener}, seed {seed:016x}, map {}", game.map_name()),
+            &format!(
+                "start: build {}, opener {opener}, seed {seed:016x}, map {}",
+                env!("BUILD_UNIX_TIME"),
+                game.map_name()
+            ),
         );
         ZzzkBot {
             name,

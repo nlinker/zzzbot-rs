@@ -13,6 +13,10 @@ const MUTA_CAP: i32 = 12;
 /// gets funded.
 const LING_CAP: i32 = 24;
 
+/// Hydra ceiling for the hydra rush: same mineral-pinning problem as the
+/// ling cap, plus the late game (hive, upgrades) needs the budget.
+const HYDRA_CAP: i32 = 24;
+
 /// Morphs an overlord when free supply approaches zero: the margin is half
 /// an overlord's capacity, so the morph lands before the block.
 pub fn supply_overlords<'game>(
@@ -143,12 +147,17 @@ pub fn morph_hydras<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     if bot.strategy.order != Some(BuildOrder::HydraRush) {
         return;
     }
-    let dens = crate::util::own_counts(&bot.own_units, cx)
+    let counts = crate::util::own_counts(&bot.own_units, cx);
+    let dens = counts
         .all
         .get(&UnitType::ZERG_HYDRALISK_DEN)
         .copied()
         .unwrap_or(0);
     if dens == 0 {
+        return;
+    }
+    let hydras = counts.all.get(&UnitType::ZERG_HYDRALISK).copied().unwrap_or(0);
+    if hydras >= HYDRA_CAP {
         return;
     }
     let game = cx.game();
@@ -161,6 +170,7 @@ pub fn morph_hydras<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     {
         if me.minerals() < UnitType::ZERG_HYDRALISK.mineral_price()
             || me.gas() < UnitType::ZERG_HYDRALISK.gas_price()
+            || hydras + made as i32 >= HYDRA_CAP
         {
             break;
         }

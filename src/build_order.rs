@@ -69,7 +69,8 @@ pub fn extractor_trick<'game>(
     let Some(geyser) = game
         .geysers()
         .iter(cx)
-        .find(|&g| g.exists() && g.distance_to_position(home) < 25 * 32)
+        .filter(|&g| g.exists() && g.distance_to_position(home) < 25 * 32)
+        .min_by_key(|&g| g.distance_to_position(home))
     else {
         return;
     };
@@ -191,14 +192,20 @@ impl<'game> BuildEngine<'game> {
         let base = scouting.my_start;
         let builder = pick_builder(cx, own, scouting, Position::new(base.x * 32, base.y * 32))?;
 
-        // A refinery goes on a geyser, not on a free tile.
+        // A refinery goes on a geyser, not on a free tile. `geysers()` order
+        // is arbitrary, so among the candidates pick the one nearest home —
+        // otherwise the extractor may land on a distant expansion geyser and
+        // gas income crawls for the whole match.
         let tile = if unit_type.is_refinery() {
             let home = Position::new(base.x * 32, base.y * 32);
             game.geysers()
                 .iter(cx)
                 .filter(|&g| g.exists() && g.distance_to_position(home) < 25 * 32)
+                .filter(|&g| {
+                    game.can_build_here_with(g.tile_position(), unit_type, Some(builder), false)
+                })
+                .min_by_key(|&g| g.distance_to_position(home))
                 .map(|g| g.tile_position())
-                .find(|&tile| game.can_build_here_with(tile, unit_type, Some(builder), false))
         } else {
             let tile = game.build_location_with(unit_type, base, 64, unit_type.requires_creep());
             (game.can_build_here_with(tile, unit_type, Some(builder), false)).then_some(tile)

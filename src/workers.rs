@@ -42,17 +42,14 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     let have_pool =
         counts.all.get(&UnitType::ZERG_SPAWNING_POOL).copied().unwrap_or(0) > 0;
     if !have_pool {
+        // Top of the queue: the pool command applies before anything else
+        // spends the same minerals. The rest of the macro below keeps
+        // running while the pool is absent or dead — an early return here
+        // once froze a whole base (no gas refill, no sunkens) for a match.
         let pool = UnitType::ZERG_SPAWNING_POOL;
-        let status = match bot.build.plan(cx, &bot.own_units, &bot.scouting, pool) {
-            Some(plan) => {
-                // Pool is the top priority: the builder goes right now.
-                issue_build(cx, bot, plan, "pool");
-                String::from("pool: ordered")
-            }
-            None => String::from("pool: waiting (minerals, throttle, builder or loc)"),
-        };
-        game.draw_text(CoordinateType::Screen, 10, 74, &status);
-        return;
+        if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, pool) {
+            issue_build(cx, bot, plan, "pool");
+        }
     }
 
     // While the pool is still to start, its 200 minerals are the budget: an
@@ -118,6 +115,10 @@ fn manage_hatcheries<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         return; // all-in: minerals go into zerglings, not bases
     }
     let counts = crate::util::own_counts(&bot.own_units, cx);
+    // After the pool: its 200 minerals come first, a hatchery at 150 would
+    // otherwise steal the budget while the pool builder waits.
+    let have_pool =
+        counts.all.get(&UnitType::ZERG_SPAWNING_POOL).copied().unwrap_or(0) > 0;
     let bases = counts
         .all
         .get(&UnitType::ZERG_HATCHERY)
@@ -125,7 +126,7 @@ fn manage_hatcheries<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         .unwrap_or(0)
         + counts.all.get(&UnitType::ZERG_LAIR).copied().unwrap_or(0)
         + counts.all.get(&UnitType::ZERG_HIVE).copied().unwrap_or(0);
-    if bases >= 2 {
+    if bases >= 2 || !have_pool {
         return;
     }
     let hatchery = UnitType::ZERG_HATCHERY;
@@ -168,7 +169,9 @@ fn manage_lair<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         return;
     }
     let me = game.self_player().expect("the bot plays a match, not a replay");
-    if me.minerals() < UnitType::ZERG_LAIR.mineral_price() {
+    if me.minerals() < UnitType::ZERG_LAIR.mineral_price()
+        || me.gas() < UnitType::ZERG_LAIR.gas_price()
+    {
         return;
     }
     if let Some(hatchery) = bot.own_units.iter(cx).find(|u| {
@@ -185,17 +188,28 @@ fn manage_lair<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     }
 }
 
-/// Tier-3 chain for the muta order: a drone-built queen's nest once the lair
-/// is up, then the lair morphs on to a hive when the nest completes. Hive
-/// itself enables nothing yet — ultra cavern is a later step — but the morph
-/// takes long, so it starts early.
+/// Tier-3 chain: a drone-built queen's nest once the lair is up (the hydra
+/// order waits for its den), then the lair morphs on to a hive when the nest
+/// completes. The hive itself gates nothing here — upgrades and the ultra
+/// cavern hang off their own gates — but the morph takes long, so it starts
+/// early.
 fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
-    if bot.strategy.order != Some(BuildOrder::MutaRush) {
+    // Speedling joins for the late game: once the attack stalls on a bank of
+    // minerals, the hive unlocks Adrenal Glands (cracklings for free).
+    if !matches!(
+        bot.strategy.order,
+        Some(BuildOrder::Speedling) | Some(BuildOrder::MutaRush) | Some(BuildOrder::HydraRush)
+    ) {
         return;
     }
     let game = cx.game();
     let counts = crate::util::own_counts(&bot.own_units, cx);
     let lair_done = counts.completed.get(&UnitType::ZERG_LAIR).copied().unwrap_or(0) > 0;
+    let dens = counts
+        .all
+        .get(&UnitType::ZERG_HYDRALISK_DEN)
+        .copied()
+        .unwrap_or(0);
     let nests = counts
         .all
         .get(&UnitType::ZERG_QUEENS_NEST)
@@ -205,7 +219,8 @@ fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 
     // The nest is a drone building (whatBuilds = Drone, Lair is a
     // prerequisite only); morphing a lair would silently fail.
-    if lair_done && nests == 0 {
+    let den_wait = bot.strategy.order == Some(BuildOrder::HydraRush) && dens == 0;
+    if lair_done && !den_wait && nests == 0 {
         let nest = UnitType::ZERG_QUEENS_NEST;
         if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, nest) {
             issue_build(cx, bot, plan, "queen's nest");
@@ -328,6 +343,17 @@ fn manage_upgrades<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         return;
     }
     if me.minerals() < want.mineral_price() || me.gas() < want.gas_price() {
+        if game.frame_count() % 600 == 0 {
+            bot.log(
+                cx,
+                &format!(
+                    "upgrade {} blocked: m {}, g {}",
+                    want.name(),
+                    me.minerals(),
+                    me.gas()
+                ),
+            );
+        }
         return;
     }
     if let Some(pool) = bot.own_units.iter(cx).find(|u| {
@@ -380,7 +406,9 @@ fn manage_sunkens<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> i3
         }
     }
 
-    if have < want {
+    // Colonies require the pool (as does the later morph), and the pool's
+    // 200 minerals come first.
+    if have < want && pool_done {
         let colony = UnitType::ZERG_CREEP_COLONY;
         if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, colony) {
             issue_build(cx, bot, plan, "creep colony");
@@ -418,7 +446,11 @@ fn manage_gas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     let all_in = bot.strategy.order == Some(BuildOrder::Pool4);
     let counts = crate::util::own_counts(&bot.own_units, cx);
     let refineries = counts.all.get(&UnitType::ZERG_EXTRACTOR).copied().unwrap_or(0);
-    if !all_in && refineries == 0 {
+    // After the pool, like the hatchery: the extractor must not eat the
+    // pool's 200 minerals.
+    let have_pool =
+        counts.all.get(&UnitType::ZERG_SPAWNING_POOL).copied().unwrap_or(0) > 0;
+    if !all_in && have_pool && refineries == 0 {
         let extractor = UnitType::ZERG_EXTRACTOR;
         if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, extractor) {
             issue_build(cx, bot, plan, "extractor");
@@ -455,6 +487,7 @@ impl<'game> ZzzkBot<'game> {
     /// Idle workers mine minerals near completed owned depots; depots train
     /// workers up to the cap — past it, larva and minerals go to the army.
     pub fn give_orders(&self, cx: Context<'_, 'game>) {
+        let game = cx.game();
         let drones = crate::util::own_counts(&self.own_units, cx)
             .all
             .get(&UnitType::ZERG_DRONE)
@@ -476,7 +509,20 @@ impl<'game> ZzzkBot<'game> {
                     if unit.is_carrying_gas() {
                         unit.return_cargo();
                     } else if let Some(refinery) = self.refinery {
-                        unit.gather(refinery);
+                        if !unit.gather(refinery)
+                            && game.frame_count() % 300 == 0
+                        {
+                            self.log(
+                                cx,
+                                &format!(
+                                    "gas: drone #{} gather failed: {}",
+                                    unit.id(),
+                                    game.last_error().name()
+                                ),
+                            );
+                        }
+                    } else if game.frame_count() % 300 == 0 {
+                        self.log(cx, "gas: roster drone but no refinery");
                     }
                     continue;
                 }
