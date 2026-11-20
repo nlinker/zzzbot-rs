@@ -118,8 +118,14 @@ impl<'game> Scouting<'game> {
             .min_by_key(|&loc| walk_dist(loc_center(loc), from))
     }
 
-    /// Frees the scout; `workers::give_orders` reassigns it once it idles.
+    /// Sends the scout home before releasing it to avoid mining enemy minerals.
+    /// `workers::give_orders` takes over once it idles at home.
     fn release(&mut self) {
+        if let Some(scout) = self.scout {
+            if scout.exists() {
+                let _ = scout.move_to(loc_center(self.my_start));
+            }
+        }
         self.scout = None;
         self.target = None;
     }
