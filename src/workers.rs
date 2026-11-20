@@ -45,6 +45,7 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     manage_gas(cx, bot);
     manage_hatcheries(cx, bot);
     manage_lair(cx, bot);
+    manage_tier3(cx, bot);
     let sunkens = manage_sunkens(cx, bot);
     let extra = if made > 0 {
         format!(", lings +{made}")
@@ -125,11 +126,59 @@ fn manage_lair<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     if !pool_done || !gas || tier2 > 0 {
         return;
     }
+    let game = cx.game();
     if let Some(hatchery) = bot.own_units.iter(cx).find(|u| {
         u.exists() && u.is_completed() && !u.is_morphing()
             && u.unit_type() == UnitType::ZERG_HATCHERY
     }) {
-        let _ = hatchery.morph(UnitType::ZERG_LAIR);
+        if !hatchery.morph(UnitType::ZERG_LAIR) {
+            game.send_text(&format!("lair morph failed: {:?}", game.last_error()));
+        }
+    }
+}
+
+/// Tier-3 chain for the muta order: a drone-built queen's nest once the lair
+/// is up, then a hive when the nest completes. Hive itself enables nothing
+/// yet — ultra cavern is a later step — but the morph takes long, so it
+/// starts early.
+fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+    if bot.strategy.order != Some(BuildOrder::MutaRush) {
+        return;
+    }
+    let game = cx.game();
+    let counts = crate::util::own_counts(&bot.own_units, cx);
+    let lair_done = counts.completed.get(&UnitType::ZERG_LAIR).copied().unwrap_or(0) > 0;
+    let nests = counts
+        .all
+        .get(&UnitType::ZERG_QUEENS_NEST)
+        .copied()
+        .unwrap_or(0);
+    let hives = counts.all.get(&UnitType::ZERG_HIVE).copied().unwrap_or(0);
+
+    // The nest is a drone building (whatBuilds = Drone, Lair is a
+    // prerequisite only); morphing a lair would silently fail.
+    if lair_done && nests == 0 {
+        let nest = UnitType::ZERG_QUEENS_NEST;
+        if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, nest) {
+            if !plan.builder.build(plan.unit_type, plan.tile) {
+                bot.build.mark_fail(nest, game.frame_count());
+            }
+        }
+        return;
+    }
+    if nests > 0 && hives == 0 {
+        let nest_done =
+            counts.completed.get(&UnitType::ZERG_QUEENS_NEST).copied().unwrap_or(0) > 0;
+        if nest_done {
+            if let Some(nest) = bot.own_units.iter(cx).find(|u| {
+                u.exists() && u.is_completed() && !u.is_morphing()
+                    && u.unit_type() == UnitType::ZERG_QUEENS_NEST
+            }) {
+                if !nest.morph(UnitType::ZERG_HIVE) {
+                    game.send_text(&format!("hive morph failed: {:?}", game.last_error()));
+                }
+            }
+        }
     }
 }
 
