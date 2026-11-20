@@ -12,6 +12,10 @@ const ARMY_TYPES: [UnitType; 4] = [
     UnitType::ZERG_ULTRALISK,
 ];
 
+/// How far from a wave member an enemy unit becomes the direct target of
+/// the wave instead of the march goal (pixels).
+const OPPORTUNITY_RADIUS: i32 = 16 * 32;
+
 /// Mutalisk count once the ultra cavern is up: the rest of the gas goes to
 /// ultralisks.
 const MUTA_CAP: i32 = 12;
@@ -226,9 +230,34 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         return;
     }
     let goal = Position::new(target.x * 32, target.y * 32);
+    let game = cx.game();
+    let enemy = bot.scouting.enemy;
+    // Targets of opportunity: a visible enemy unit near a wave member is
+    // attacked directly instead of the march goal — attack-move only
+    // engages along the path, not beside it.
+    let enemies: Vec<_> = game
+        .all_units()
+        .iter(cx)
+        .filter(|u| {
+            u.exists() && u.is_visible() && Some(u.player()) == enemy
+                && !u.unit_type().is_building()
+        })
+        .collect();
     let size = wave.len();
     for unit in wave {
-        unit.attack_position(goal);
+        let near = enemies
+            .iter()
+            .copied()
+            .filter(|&e| unit.distance_to_unit(e) < OPPORTUNITY_RADIUS)
+            .min_by_key(|&e| unit.distance_to_unit(e));
+        match near {
+            Some(e) => {
+                unit.attack_unit(e);
+            }
+            None => {
+                unit.attack_position(goal);
+            }
+        }
     }
     let first = if mult == 2 { "first " } else { "" };
     bot.pushed = true;
