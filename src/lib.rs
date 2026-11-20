@@ -8,7 +8,10 @@ mod strategy;
 mod util;
 mod workers;
 
-use bwapi::{Bot, Color, Context, CoordinateType, Game, TextColor, Unit, UnitQuery, UnitSet, UnitType};
+use bwapi::{
+    Bot, Color, Context, CoordinateType, Game, TextColor, Unit, UnitQuery, UnitSet, UnitType,
+    UpgradeType,
+};
 use build_order::BuildEngine;
 use log::Logger;
 use scouting::Scouting;
@@ -75,10 +78,26 @@ impl<'game> ZzzkBot<'game> {
         let hydras_done = counts.completed.get(&UnitType::ZERG_HYDRALISK).copied().unwrap_or(0);
         let ultras = counts.all.get(&UnitType::ZERG_ULTRALISK).copied().unwrap_or(0);
         let ultras_done = counts.completed.get(&UnitType::ZERG_ULTRALISK).copied().unwrap_or(0);
+        let army = lings_done + mutas_done + hydras_done + ultras_done;
+        let upgrades = format!(
+            "MB{} AG{}",
+            me.upgrade_level(UpgradeType::METABOLIC_BOOST),
+            me.upgrade_level(UpgradeType::ADRENAL_GLANDS),
+        );
+        let push = if self.pushed { "pushed" } else { "armed" };
         let supply = format!(
-            "U {}/{}, lings {} (+{} in eggs), mutas {} (+{}), hydras {} (+{}), ultras {} (+{})",
+            "U {}/{}, m {} g {}, army {}, {}, {}",
             util::supply_str(counts.supply_used),
             util::supply_str(me.supply_total()),
+            me.minerals(),
+            me.gas(),
+            army,
+            upgrades,
+            push,
+        );
+        game.draw_text(CoordinateType::Screen, 10, 26, &supply);
+        let wave = format!(
+            "lings {} (+{} in eggs), mutas {} (+{}), hydras {} (+{}), ultras {} (+{})",
             lings_done,
             lings - lings_done,
             mutas_done,
@@ -88,7 +107,7 @@ impl<'game> ZzzkBot<'game> {
             ultras_done,
             ultras - ultras_done,
         );
-        game.draw_text(CoordinateType::Screen, 10, 26, &supply);
+        game.draw_text(CoordinateType::Screen, 10, 34, &wave);
 
         let order = match self.strategy.order {
             Some(order) => format!("{}, sunkens {}", order.name(), self.strategy.num_sunkens),
