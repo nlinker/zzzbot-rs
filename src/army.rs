@@ -101,3 +101,41 @@ pub fn morph_mutas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         bot.log(cx, &format!("mutas: +{made}"));
     }
 }
+
+/// Hydra production for the hydra rush: idle larvae become hydralisks while
+/// minerals and gas last.
+pub fn morph_hydras<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+    if bot.strategy.order != Some(BuildOrder::HydraRush) {
+        return;
+    }
+    let dens = crate::util::own_counts(&bot.own_units, cx)
+        .all
+        .get(&UnitType::ZERG_HYDRALISK_DEN)
+        .copied()
+        .unwrap_or(0);
+    if dens == 0 {
+        return;
+    }
+    let game = cx.game();
+    let me = game.self_player().expect("the bot plays a match, not a replay");
+    let mut made = 0;
+    for larva in bot
+        .own_units
+        .iter(cx)
+        .filter(|u| u.exists() && u.is_idle() && u.unit_type() == UnitType::ZERG_LARVA)
+    {
+        if me.minerals() < UnitType::ZERG_HYDRALISK.mineral_price()
+            || me.gas() < UnitType::ZERG_HYDRALISK.gas_price()
+        {
+            break;
+        }
+        if larva.morph(UnitType::ZERG_HYDRALISK) {
+            made += 1;
+        } else {
+            break;
+        }
+    }
+    if made > 0 {
+        bot.log(cx, &format!("hydras: +{made}"));
+    }
+}

@@ -59,12 +59,14 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     army::supply_overlords(cx, bot, &counts);
     let made = army::morph_lings(cx, bot);
     army::morph_mutas(cx, bot);
+    army::morph_hydras(cx, bot);
 
     manage_gas(cx, bot);
     manage_hatcheries(cx, bot);
     manage_lair(cx, bot);
     manage_tier3(cx, bot);
     manage_spire(cx, bot);
+    manage_den(cx, bot);
     let sunkens = manage_sunkens(cx, bot);
     let extra = if made > 0 {
         format!(", lings +{made}")
@@ -241,6 +243,28 @@ fn manage_spire<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     let spire = UnitType::ZERG_SPIRE;
     if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, spire) {
         issue_build(cx, bot, plan, "spire");
+    }
+}
+
+/// Builds the hydralisk den for the hydra rush once the lair is complete
+/// (the den itself only needs the pool, but the rush times with tier 2).
+fn manage_den<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+    if bot.strategy.order != Some(BuildOrder::HydraRush) {
+        return;
+    }
+    let counts = crate::util::own_counts(&bot.own_units, cx);
+    let lair_done = counts.completed.get(&UnitType::ZERG_LAIR).copied().unwrap_or(0) > 0;
+    let dens = counts
+        .all
+        .get(&UnitType::ZERG_HYDRALISK_DEN)
+        .copied()
+        .unwrap_or(0);
+    if !lair_done || dens > 0 {
+        return;
+    }
+    let den = UnitType::ZERG_HYDRALISK_DEN;
+    if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, den) {
+        issue_build(cx, bot, plan, "den");
     }
 }
 
