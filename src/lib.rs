@@ -32,6 +32,8 @@ pub struct ZzzkBot<'game> {
     /// Extractor trick.
     pub trick_builder: Option<Unit<'game>>,
     pub trick_extractor: Option<Unit<'game>>,
+    /// The army already pushed once; later waves fire at the normal threshold.
+    pub pushed: bool,
     /// Decision-point log, truncated at match start.
     pub logger: Logger,
     /// Unit handles, valid for the whole match.
@@ -168,6 +170,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
             refinery: None,
             trick_builder: None,
             trick_extractor: None,
+            pushed: false,
             logger,
             created: Vec::new(),
             around_base: base.map(|depot| game.units_in_radius(depot.position(), 320)),
@@ -192,6 +195,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
         workers::defend_base(cx, self);
         macro_orders(cx, self);
         self.give_orders(cx);
+        army::push_army(cx, self);
         self.scan_base(cx.game());
     }
 

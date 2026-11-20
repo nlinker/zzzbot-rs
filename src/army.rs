@@ -2,16 +2,24 @@
 
 use crate::strategy::BuildOrder;
 use crate::ZzzkBot;
-use bwapi::{Context, UnitType};
+use bwapi::{Context, Position, UnitType};
+
+/// Army units that take orders from the push layer.
+const ARMY_TYPES: [UnitType; 4] = [
+    UnitType::ZERG_ZERGLING,
+    UnitType::ZERG_MUTALISK,
+    UnitType::ZERG_HYDRALISK,
+    UnitType::ZERG_ULTRALISK,
+];
 
 /// Mutalisk count once the ultra cavern is up: the rest of the gas goes to
 /// ultralisks.
 const MUTA_CAP: i32 = 12;
 
 /// Ling production ceiling for the ling orders: without it greedy morphing
-/// pins minerals below the hatchery and lair prices, and the build-up never
-/// gets funded.
-const LING_CAP: i32 = 24;
+/// pins minerals below the hatchery and lair prices. Set to the first-wave
+/// size: a lower cap starved the double-strength opening push forever.
+const LING_CAP: i32 = 32;
 
 /// Hydra ceiling for the hydra rush: same mineral-pinning problem as the
 /// ling cap, plus the late game (hive, upgrades) needs the budget.
@@ -183,6 +191,50 @@ pub fn morph_hydras<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     if made > 0 {
         bot.log(cx, &format!("hydras: +{made}"));
     }
+}
+
+/// Attack-moves the army to the enemy start in waves: the push fires only
+/// when enough units stand idle (mutas 4, ultras 2, hydras 8, lings 16), and
+/// sends all of them at once. Freshly built units hold at the base until the
+/// next wave gathers — a trickle of singles dies one by one on the way.
+pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+    let Some(target) = bot.scouting.enemy_start else {
+        return;
+    };
+    let wave: Vec<_> = bot
+        .own_units
+        .iter(cx)
+        .filter(|u| {
+            ARMY_TYPES.contains(&u.unit_type())
+                && u.exists()
+                && u.is_completed()
+                && !u.is_morphing()
+                // In combat the unit targets on its own; re-ordering would churn it.
+                && !u.is_attacking()
+        })
+        .collect();
+    // The first wave strikes at double strength; later waves fire at the
+    // normal threshold so reinforcements keep flowing.
+    let mult = if bot.pushed { 1 } else { 2 };
+    let is_wave = |t: UnitType| wave.iter().filter(|u| u.unit_type() == t).count();
+    let ready = is_wave(UnitType::ZERG_MUTALISK) >= 4 * mult
+        || is_wave(UnitType::ZERG_ULTRALISK) >= 2 * mult
+        || is_wave(UnitType::ZERG_HYDRALISK) >= 8 * mult
+        || is_wave(UnitType::ZERG_ZERGLING) >= 16 * mult;
+    if !ready {
+        return;
+    }
+    let goal = Position::new(target.x * 32, target.y * 32);
+    let size = wave.len();
+    for unit in wave {
+        unit.attack_position(goal);
+    }
+    let first = if mult == 2 { "first " } else { "" };
+    bot.pushed = true;
+    bot.log(
+        cx,
+        &format!("push: {first}wave of {size} attack-move to {},{}", target.x, target.y),
+    );
 }
 
 /// Ultra production once the cavern is up: idle larvae become ultralisks
