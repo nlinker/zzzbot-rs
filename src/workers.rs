@@ -29,7 +29,11 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         game.draw_text(CoordinateType::Screen, 10, 74, "pool: built");
     }
 
-    supply_overlords(cx, bot, &counts);
+    // While the pool is still to start, its 200 minerals are the budget: an
+    // overlord morph here would eat them mid-flight of the builder.
+    if have_pool {
+        supply_overlords(cx, bot, &counts);
+    }
 }
 
 /// Morphs an overlord when free supply approaches zero: the margin is half
