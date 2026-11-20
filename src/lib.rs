@@ -117,19 +117,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
         self.draw_stats(cx);
         self.scouting.update(cx, &self.own_units);
         self.scouting.draw(cx);
-
-        // Debug line for the build engine: plan a spawning pool, show the find.
-        let pool = UnitType::ZERG_SPAWNING_POOL;
-        let game = cx.game();
-        let status = match self.build.plan(cx, &self.own_units, &self.scouting, pool) {
-            Some(plan) => {
-                game.draw_circle_map(plan.builder.position(), 20, Color::RED);
-                format!("pool: builder #{}, loc {},{}", plan.builder.id(), plan.tile.x, plan.tile.y)
-            }
-            None => String::from("pool: waiting (minerals, throttle, builder or loc)"),
-        };
-        game.draw_text(CoordinateType::Screen, 10, 74, &status);
-
+        macro_orders(cx, self);
         self.give_orders(cx);
         self.scan_base(cx.game());
     }
