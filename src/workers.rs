@@ -12,6 +12,10 @@ const MINERAL_DEPOT_RADIUS: i32 = 10 * 32;
 /// Drones on one geyser.
 const GAS_WORKERS: usize = 3;
 
+/// Worker ceiling: mining saturates well below this, the rest of the
+/// minerals and larvae belongs to the army.
+const DRONE_CAP: i32 = 40;
+
 /// Issues a planned build and logs the decision either way: builder and tile
 /// on success, the BWAPI error on failure.
 fn issue_build<'game>(
@@ -57,11 +61,10 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     let free = me.supply_total() - counts.supply_used;
     build_order::extractor_trick(cx, bot, free);
     army::supply_overlords(cx, bot, &counts);
-    let made = army::morph_lings(cx, bot);
-    army::morph_mutas(cx, bot);
-    army::morph_hydras(cx, bot);
-    army::morph_ultras(cx, bot);
 
+    // Tech and economy before army morphs: BWAPI applies queued commands at
+    // the end of the frame in issue order, so a muta queued earlier could
+    // drink the gas right before the cavern command applies.
     manage_gas(cx, bot);
     manage_hatcheries(cx, bot);
     manage_lair(cx, bot);
@@ -70,6 +73,10 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     manage_den(cx, bot);
     manage_cavern(cx, bot);
     let sunkens = manage_sunkens(cx, bot);
+    let made = army::morph_lings(cx, bot);
+    army::morph_mutas(cx, bot);
+    army::morph_hydras(cx, bot);
+    army::morph_ultras(cx, bot);
     let extra = if made > 0 {
         format!(", lings +{made}")
     } else {
@@ -127,11 +134,12 @@ fn manage_hatcheries<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 }
 
 /// Morphs the first hatchery into a lair once the pool and gas are up and
-/// the order wants tier-2 tech (mutas and hydras both need it).
+/// the order wants tier-2 tech (mutas, hydras and the speedling upgrade
+/// path all need it).
 fn manage_lair<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     let wants_t2 = matches!(
         bot.strategy.order,
-        Some(BuildOrder::MutaRush) | Some(BuildOrder::HydraRush)
+        Some(BuildOrder::Speedling) | Some(BuildOrder::MutaRush) | Some(BuildOrder::HydraRush)
     );
     if !wants_t2 {
         return;
@@ -343,12 +351,28 @@ fn manage_sunkens<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> i3
 /// Builds the extractor after the pool (not on a 4-pool all-in) and staffs
 /// it with three drones once completed.
 fn manage_gas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
-    // Dead drones and stale refinery leave the roster each frame.
+    // Dead drones and stale refinery leave the roster each frame; both events
+    // are logged — a silent roster leak was hard to diagnose from the log.
+    let before = bot.gas_drones.len();
     bot.gas_drones.retain(|d| d.exists());
+    if bot.gas_drones.len() != before {
+        bot.log(
+            cx,
+            &format!(
+                "gas roster: lost {} drone(s), {} left",
+                before - bot.gas_drones.len(),
+                bot.gas_drones.len()
+            ),
+        );
+    }
+    let had_refinery = bot.refinery.is_some();
     bot.refinery = bot
         .own_units
         .iter(cx)
         .find(|u| u.exists() && u.is_completed() && u.unit_type().is_refinery());
+    if had_refinery && bot.refinery.is_none() {
+        bot.log(cx, "gas: refinery lost");
+    }
 
     let all_in = bot.strategy.order == Some(BuildOrder::Pool4);
     let counts = crate::util::own_counts(&bot.own_units, cx);
@@ -378,6 +402,7 @@ fn manage_gas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             break;
         };
         if worker.gather(refinery) {
+            bot.log(cx, &format!("gas roster: +drone #{}", worker.id()));
             bot.gas_drones.push(worker);
         } else {
             break;
@@ -386,8 +411,14 @@ fn manage_gas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 }
 
 impl<'game> ZzzkBot<'game> {
-    /// Idle workers mine minerals near completed owned depots; depots train workers.
+    /// Idle workers mine minerals near completed owned depots; depots train
+    /// workers up to the cap — past it, larva and minerals go to the army.
     pub fn give_orders(&self, cx: Context<'_, 'game>) {
+        let drones = crate::util::own_counts(&self.own_units, cx)
+            .all
+            .get(&UnitType::ZERG_DRONE)
+            .copied()
+            .unwrap_or(0);
         for unit in self.own_units.iter(cx) {
             let unit_type = unit.unit_type();
             if unit_type.is_worker() || self.build.is_builder(unit) {
@@ -396,7 +427,7 @@ impl<'game> ZzzkBot<'game> {
                 }
                 // The plan layer drives its reserved builders; a mining order
                 // here would override the fresh build command.
-                if self.build.is_builder(unit) {
+                if self.build.is_builder(unit) || self.trick_builder == Some(unit) {
                     continue;
                 }
                 // Gas drones cycle between the refinery and the depot.
@@ -432,7 +463,9 @@ impl<'game> ZzzkBot<'game> {
                     unit.right_click_unit(mineral);
                 }
             } else if unit_type.is_resource_depot() && !unit.is_training() {
-                unit.train(unit_type.race().worker());
+                if drones < DRONE_CAP {
+                    unit.train(unit_type.race().worker());
+                }
             }
         }
     }

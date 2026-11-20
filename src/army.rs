@@ -8,6 +8,11 @@ use bwapi::{Context, UnitType};
 /// ultralisks.
 const MUTA_CAP: i32 = 12;
 
+/// Ling production ceiling for the ling orders: without it greedy morphing
+/// pins minerals below the hatchery and lair prices, and the build-up never
+/// gets funded.
+const LING_CAP: i32 = 24;
+
 /// Morphs an overlord when free supply approaches zero: the margin is half
 /// an overlord's capacity, so the morph lands before the block.
 pub fn supply_overlords<'game>(
@@ -26,6 +31,14 @@ pub fn supply_overlords<'game>(
     if counts.incomplete.get(&UnitType::ZERG_OVERLORD).copied().unwrap_or(0) > 0 {
         return;
     }
+    // Retry throttle: a failed morph (usually minerals) would otherwise
+    // re-issue and re-log every frame.
+    if !bot.build.can_retry(UnitType::ZERG_OVERLORD, game.frame_count()) {
+        return;
+    }
+    if me.minerals() < UnitType::ZERG_OVERLORD.mineral_price() {
+        return;
+    }
 
     if let Some(larva) = bot
         .own_units
@@ -35,14 +48,27 @@ pub fn supply_overlords<'game>(
         if larva.morph(UnitType::ZERG_OVERLORD) {
             bot.log(cx, "supply: overlord morphing");
         } else {
+            bot.build.mark_fail(UnitType::ZERG_OVERLORD, game.frame_count());
             bot.log(cx, &format!("overlord morph failed: {}", game.last_error().name()));
         }
     }
 }
 
-/// 4-pool production: every idle larva becomes zerglings while minerals last.
+/// Ling production for the all-in and speedling orders: every idle larva
+/// becomes zerglings while minerals last.
 pub fn morph_lings<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> usize {
-    if bot.strategy.order != Some(BuildOrder::Pool4) {
+    if !matches!(
+        bot.strategy.order,
+        Some(BuildOrder::Pool4) | Some(BuildOrder::Speedling)
+    ) {
+        return 0;
+    }
+    let lings = crate::util::own_counts(&bot.own_units, cx)
+        .all
+        .get(&UnitType::ZERG_ZERGLING)
+        .copied()
+        .unwrap_or(0);
+    if lings >= LING_CAP {
         return 0;
     }
     let game = cx.game();
@@ -53,7 +79,9 @@ pub fn morph_lings<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> u
         .iter(cx)
         .filter(|u| u.exists() && u.is_idle() && u.unit_type() == UnitType::ZERG_LARVA)
     {
-        if me.minerals() < UnitType::ZERG_ZERGLING.mineral_price() {
+        if me.minerals() < UnitType::ZERG_ZERGLING.mineral_price()
+            || lings + made as i32 >= LING_CAP
+        {
             break;
         }
         if larva.morph(UnitType::ZERG_ZERGLING) {
@@ -67,8 +95,9 @@ pub fn morph_lings<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> u
 }
 
 /// Muta production for the muta rush: idle larvae become mutalisks while
-/// minerals and gas last. Once the cavern is under way the count is capped:
-/// the gas is saved for ultralisks.
+/// minerals and gas last, up to the cap. The cap is unconditional: greedy
+/// mutas would otherwise drain the gas below the cavern price forever, so
+/// the cavern could never start and the cap (tied to it) never engaged.
 pub fn morph_mutas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     if bot.strategy.order != Some(BuildOrder::MutaRush) {
         return;
@@ -80,13 +109,8 @@ pub fn morph_mutas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     if spires == 0 {
         return;
     }
-    let caverns = counts
-        .all
-        .get(&UnitType::ZERG_ULTRALISK_CAVERN)
-        .copied()
-        .unwrap_or(0);
     let mutas = counts.all.get(&UnitType::ZERG_MUTALISK).copied().unwrap_or(0);
-    if caverns > 0 && mutas >= MUTA_CAP {
+    if mutas >= MUTA_CAP {
         return;
     }
     let game = cx.game();

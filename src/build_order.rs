@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use crate::scouting::Scouting;
+use crate::strategy::Opener;
 use crate::ZzzkBot;
 use bwapi::{Context, Position, TilePosition, Unit, UnitSet, UnitType};
 
@@ -47,11 +48,20 @@ pub fn extractor_trick<'game>(
             return;
         }
         bot.trick_builder = None; // dead or the order failed
+        bot.log(cx, "extractor trick: builder lost, order died");
         return;
     }
 
     // Nothing under way: start the trick while blocked, if a geyser is free.
     if free_supply >= egg_supply {
+        return;
+    }
+    // The gas extractor frees its drone's supply the same way; the trick only
+    // makes sense before any extractor exists. The extractor order (gas) is
+    // issued only outside the all-in, so outside the all-in the trick would
+    // race it: the walking builder carries no build type yet, the check above
+    // cannot see it, and both drones end up bound for the same geyser.
+    if !matches!(bot.strategy.opener, Opener::Pool4) {
         return;
     }
     let base = bot.scouting.my_start;
@@ -156,7 +166,7 @@ impl<'game> BuildEngine<'game> {
     ) -> Option<Plan<'game>> {
         let game = cx.game();
         let me = game.self_player().expect("the bot plays a match, not a replay");
-        if me.minerals() < unit_type.mineral_price() {
+        if me.minerals() < unit_type.mineral_price() || me.gas() < unit_type.gas_price() {
             return None;
         }
         if !self.can_retry(unit_type, game.frame_count()) {

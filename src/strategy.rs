@@ -27,6 +27,17 @@ impl BuildOrder {
             BuildOrder::MutaRush => "mutas",
         }
     }
+
+    /// The intended tech chain; one log line at scouted makes the log
+    /// self-explanatory when a piece is missing later.
+    pub fn tech_line(self) -> &'static str {
+        match self {
+            BuildOrder::Pool4 => "lings only, no tech",
+            BuildOrder::Speedling => "lings, then lair for speed upgrade",
+            BuildOrder::HydraRush => "lair, den, hydras",
+            BuildOrder::MutaRush => "lair, spire, mutas, nest, hive, cavern, ultras",
+        }
+    }
 }
 
 pub struct Strategy {
@@ -48,7 +59,7 @@ impl Strategy {
             Opener::Pool4 => Some(BuildOrder::Pool4),
             Opener::Standard => None,
         };
-        Strategy { rng, opener, order, num_sunkens: 1 }
+        Strategy { rng, opener, order, num_sunkens: 2 }
     }
 
     /// Picks the final order by enemy race.
@@ -62,7 +73,7 @@ impl Strategy {
             Race::PROTOSS => self.rng.pick(&[(BuildOrder::MutaRush, 2), (BuildOrder::HydraRush, 2)]),
             _ => BuildOrder::MutaRush,
         };
-        self.num_sunkens = if enemy_race == Race::ZERG { 2 } else { 1 };
+        self.num_sunkens = if enemy_race == Race::ZERG { 3 } else { 2 };
         self.order = Some(order);
     }
 }

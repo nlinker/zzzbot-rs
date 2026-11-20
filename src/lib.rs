@@ -200,10 +200,14 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
                 .strategy
                 .order
                 .map_or(String::from("?"), |o| o.name().to_string());
+            let tech = self
+                .strategy
+                .order
+                .map_or("", |o| o.tech_line());
             self.logger.line(
                 cx.game().frame_count(),
                 &format!(
-                    "scouted: race {}, order {order}, sunkens {}",
+                    "scouted: race {}, order {order}, sunkens {}, plan: {tech}",
                     race.name(),
                     self.strategy.num_sunkens
                 ),
