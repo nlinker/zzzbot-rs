@@ -43,6 +43,7 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     let made = army::morph_lings(cx, bot);
 
     manage_gas(cx, bot);
+    let sunkens = manage_sunkens(cx, bot);
     let extra = if made > 0 {
         format!(", lings +{made}")
     } else {
@@ -52,8 +53,62 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         CoordinateType::Screen,
         10,
         74,
-        &format!("pool: built{extra}, gas workers {}", bot.gas_drones.len()),
+        &format!(
+            "pool: built{extra}, gas workers {}, sunkens {}",
+            bot.gas_drones.len(),
+            sunkens,
+        ),
     );
+}
+
+/// Base defense: creep colonies up to the strategy's sunken count, finished
+/// ones morphed into sunken colonies. Returns that count, colonies included.
+fn manage_sunkens<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> i32 {
+    let game = cx.game();
+    let want = bot.strategy.num_sunkens;
+
+    let mut have: i32 = 0;
+    let mut idle_colonies: Vec<_> = Vec::new();
+    for unit in bot.own_units.iter(cx) {
+        if !unit.exists() {
+            continue;
+        }
+        let unit_type = unit.unit_type();
+        if unit_type == UnitType::ZERG_SUNKEN_COLONY
+            || unit.build_type() == UnitType::ZERG_SUNKEN_COLONY
+            || unit.build_type() == UnitType::ZERG_CREEP_COLONY
+        {
+            have += 1;
+        }
+        if unit_type == UnitType::ZERG_CREEP_COLONY && unit.is_completed() {
+            idle_colonies.push(unit);
+        }
+    }
+
+    // The morph needs a finished pool; colonies just need creep.
+    let counts = crate::util::own_counts(&bot.own_units, cx);
+    let pool_done =
+        counts.completed.get(&UnitType::ZERG_SPAWNING_POOL).copied().unwrap_or(0) > 0;
+    if pool_done {
+        for colony in idle_colonies {
+            if have >= want {
+                break;
+            }
+            if colony.morph(UnitType::ZERG_SUNKEN_COLONY) {
+                have += 1;
+            }
+        }
+    }
+
+    if have < want {
+        let colony = UnitType::ZERG_CREEP_COLONY;
+        if let Some(plan) = bot.build.plan(cx, &bot.own_units, &bot.scouting, colony) {
+            if !plan.builder.build(plan.unit_type, plan.tile) {
+                bot.build.mark_fail(colony, game.frame_count());
+            }
+        }
+    }
+    have
 }
 
 /// Builds the extractor after the pool (not on a 4-pool all-in) and staffs
