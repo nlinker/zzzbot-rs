@@ -202,6 +202,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
         macro_orders(cx, self);
         self.give_orders(cx);
         army::push_army(cx, self);
+        army::muta_micro(cx, self);
         self.scan_base(cx.game());
     }
 

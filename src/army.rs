@@ -243,6 +243,10 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 && !u.unit_type().is_building()
         })
         .collect();
+    // Muta micro owns mutalisk orders: wounded ones would only be re-sent
+    // to die by the wave, so they are dispatched here instead.
+    let mut wave: Vec<_> = wave;
+    wave.retain(|u| u.unit_type() != UnitType::ZERG_MUTALISK);
     let size = wave.len();
     for unit in wave {
         let near = enemies
@@ -265,6 +269,61 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         cx,
         &format!("push: {first}wave of {size} attack-move to {},{}", target.x, target.y),
     );
+}
+
+/// Muta micro: wounded mutas (under 30% hp) retreat home to regen, healthy
+/// ones (70%+) focus-fire the lowest-hp enemy in range or march to the enemy
+/// start; the 30-70% band keeps the order it already has — no per-unit state
+/// needed. Mutas are excluded from the push wave: this function owns their
+/// orders.
+pub fn muta_micro<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+    let game = cx.game();
+    let mutas: Vec<_> = bot
+        .own_units
+        .iter(cx)
+        .filter(|u| {
+            u.exists() && u.is_completed() && !u.is_morphing()
+                && u.unit_type() == UnitType::ZERG_MUTALISK
+        })
+        .collect();
+    if mutas.is_empty() {
+        return;
+    }
+    let home = Position::new(
+        bot.scouting.my_start.x * 32,
+        bot.scouting.my_start.y * 32,
+    );
+    // Focus target: the weakest visible enemy unit near any muta. All
+    // healthy mutas shoot the same one, so nothing is wasted switching.
+    let mut target = None;
+    if let Some(enemy) = bot.scouting.enemy {
+        target = game
+            .all_units()
+            .iter(cx)
+            .filter(|u| {
+                u.exists() && u.is_visible() && u.player() == enemy
+                    && !u.unit_type().is_building()
+            })
+            .filter(|&e| mutas.iter().any(|m| m.distance_to_unit(e) < 20 * 32))
+            .min_by_key(|&e| e.hit_points());
+    }
+    let goal = bot.scouting.enemy_start;
+    for m in mutas {
+        let max = m.unit_type().max_hit_points();
+        let hp = m.hit_points();
+        if hp * 10 < max * 3 {
+            // Retreat: home regen heals; idle there means already arrived.
+            if m.distance_to_position(home) > 4 * 32 {
+                m.move_to(home);
+            }
+        } else if hp * 10 > max * 7 && m.is_idle() {
+            if let Some(t) = target {
+                m.attack_unit(t);
+            } else if let Some(goal) = goal {
+                m.attack_position(Position::new(goal.x * 32, goal.y * 32));
+            }
+        }
+    }
 }
 
 /// Ultra production once the cavern is up: idle larvae become ultralisks
