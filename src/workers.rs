@@ -4,7 +4,7 @@ use crate::army;
 use crate::build_order;
 use crate::strategy::BuildOrder;
 use crate::ZzzkBot;
-use bwapi::{Context, CoordinateType, UnitType};
+use bwapi::{Context, CoordinateType, UpgradeType, UnitType};
 
 /// Maximum distance from an owned resource depot to a mineral patch (pixels).
 const MINERAL_DEPOT_RADIUS: i32 = 10 * 32;
@@ -72,6 +72,7 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     manage_spire(cx, bot);
     manage_den(cx, bot);
     manage_cavern(cx, bot);
+    manage_upgrades(cx, bot);
     let sunkens = manage_sunkens(cx, bot);
     let made = army::morph_lings(cx, bot);
     army::morph_mutas(cx, bot);
@@ -300,10 +301,50 @@ fn manage_cavern<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     }
 }
 
+/// Ling upgrades at the spawning pool: Metabolic Boost once the lair is up
+/// (the Speedling path, or any late game that reached tier 2), Adrenal
+/// Glands at the hive.
+fn manage_upgrades<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+    let game = cx.game();
+    let me = game.self_player().expect("the bot plays a match, not a replay");
+    let counts = crate::util::own_counts(&bot.own_units, cx);
+    // The lair morphs away into the hive, so tier 2 is either of the two.
+    let tier2_done = counts.completed.get(&UnitType::ZERG_LAIR).copied().unwrap_or(0) > 0
+        || counts.completed.get(&UnitType::ZERG_HIVE).copied().unwrap_or(0) > 0;
+    let hive_done = counts.completed.get(&UnitType::ZERG_HIVE).copied().unwrap_or(0) > 0;
+
+    // Metabolic first: Adrenal only makes sense on top of it.
+    let want = if tier2_done
+        && (bot.strategy.order == Some(BuildOrder::Speedling) || hive_done)
+        && me.upgrade_level(UpgradeType::METABOLIC_BOOST) == 0
+    {
+        UpgradeType::METABOLIC_BOOST
+    } else if hive_done && me.upgrade_level(UpgradeType::ADRENAL_GLANDS) == 0 {
+        UpgradeType::ADRENAL_GLANDS
+    } else {
+        return;
+    };
+    if me.is_upgrading(want) {
+        return;
+    }
+    if me.minerals() < want.mineral_price() || me.gas() < want.gas_price() {
+        return;
+    }
+    if let Some(pool) = bot.own_units.iter(cx).find(|u| {
+        u.exists() && u.is_completed() && u.is_idle()
+            && u.unit_type() == UnitType::ZERG_SPAWNING_POOL
+    }) {
+        if pool.upgrade(want) {
+            bot.log(cx, &format!("upgrade: {} researching", want.name()));
+        } else {
+            bot.log(cx, &format!("upgrade failed: {}", game.last_error().name()));
+        }
+    }
+}
+
 /// Base defense: creep colonies up to the strategy's sunken count, finished
 /// ones morphed into sunken colonies. Returns that count, colonies included.
-fn manage_sunkens<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> i32 {
-    let want = bot.strategy.num_sunkens;
+fn manage_sunkens<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> i32 {    let want = bot.strategy.num_sunkens;
 
     let mut have: i32 = 0;
     let mut idle_colonies: Vec<_> = Vec::new();
