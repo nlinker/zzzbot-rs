@@ -4,7 +4,7 @@ use crate::army;
 use crate::build_order;
 use crate::strategy::BuildOrder;
 use crate::ZzzkBot;
-use bwapi::{Context, CoordinateType, Position, UpgradeType, UnitType};
+use bwapi::{Context, CoordinateType, Position, Unit, UpgradeType, UnitType};
 
 /// Maximum distance from an owned resource depot to a mineral patch (pixels).
 const MINERAL_DEPOT_RADIUS: i32 = 10 * 32;
@@ -574,14 +574,22 @@ impl<'game> ZzzkBot<'game> {
     /// workers up to the cap — past it, larva and minerals go to the army.
     pub fn give_orders(&self, cx: Context<'_, 'game>) {
         let game = cx.game();
-        let drones = crate::util::own_counts(&self.own_units, cx)
-            .all
-            .get(&UnitType::ZERG_DRONE)
-            .copied()
-            .unwrap_or(0);
+        let counts = crate::util::own_counts(&self.own_units, cx);
+        let drones = counts.all.get(&UnitType::ZERG_DRONE).copied().unwrap_or(0);
+        // Mining discipline: every order below is issued only to an idle
+        // worker; a busy one keeps its order (gather cycles by itself, and
+        // re-issuing would reset a live walk). The depot list is built once
+        // per frame — the mineral filter runs per idle drone otherwise.
+        let depots: Vec<Unit<'_>> = self
+            .own_units
+            .iter(cx)
+            .filter(|u| {
+                u.exists() && u.is_completed() && u.unit_type().is_resource_depot()
+            })
+            .collect();
         for unit in self.own_units.iter(cx) {
             let unit_type = unit.unit_type();
-            if unit_type.is_worker() || self.build.is_builder(unit) {
+            if unit_type.is_worker() {
                 if !unit.is_idle() {
                     continue;
                 }
@@ -624,12 +632,11 @@ impl<'game> ZzzkBot<'game> {
                     .iter(cx)
                     .filter(|&mineral| {
                         mineral.exists()
-                            && self.own_units.iter(cx).any(|depot| {
-                                depot.exists()
-                                    && depot.is_completed()
-                                    && depot.unit_type().is_resource_depot()
-                                    && depot.distance_to_unit(mineral) < MINERAL_DEPOT_RADIUS
-                            })
+                            && depots
+                                .iter()
+                                .any(|depot| {
+                                    depot.distance_to_unit(mineral) < MINERAL_DEPOT_RADIUS
+                                })
                     })
                     .min_by_key(|&mineral| unit.distance_to_unit(mineral));
                 if let Some(mineral) = closest {
