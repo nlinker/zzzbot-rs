@@ -39,9 +39,11 @@ pub struct Strategy {
 }
 
 impl Strategy {
+    /// Debug: always the standard opener until the randomized pipeline is
+    /// verified; flip back to the weighted pick afterwards.
     pub fn new(seed: u64) -> Self {
-        let mut rng = Rng::new(seed);
-        let opener = rng.pick(&[(Opener::Pool4, 1), (Opener::Standard, 1)]);
+        let rng = Rng::new(seed);
+        let opener = Opener::Standard;
         let order = match opener {
             Opener::Pool4 => Some(BuildOrder::Pool4),
             Opener::Standard => None,
