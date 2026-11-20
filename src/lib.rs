@@ -9,6 +9,7 @@ mod workers;
 use bwapi::{Bot, Color, Context, CoordinateType, Game, TextColor, Unit, UnitQuery, UnitSet, UnitType};
 use build_order::BuildEngine;
 use scouting::Scouting;
+use workers::macro_orders;
 use strategy::Strategy;
 
 pub struct ZzzkBot<'game> {
@@ -18,7 +19,7 @@ pub struct ZzzkBot<'game> {
     pub minerals: UnitSet<'game>,
     pub strategy: Strategy,
     pub scouting: Scouting<'game>,
-    pub build: BuildEngine,
+    pub build: BuildEngine<'game>,
     /// Unit handles, valid for the whole match.
     created: Vec<Unit<'game>>,
     /// An owned query result, read a few items at a time across frames.

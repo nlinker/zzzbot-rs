@@ -17,18 +17,28 @@ pub struct Plan<'game> {
 
 /// Plans buildings: builder choice, tile choice, retry throttling.
 #[derive(Default)]
-pub struct BuildEngine {
+pub struct BuildEngine<'game> {
     /// Frame of the last failed attempt, per building type.
     last_fail: HashMap<UnitType, i32>,
+    /// Drone sent to build each type: ordered, but not morphing yet. A
+    /// travelling builder reads neither `is_constructing` nor an egg, so
+    /// without this each frame would send a fresh drone to the same tile.
+    builders: HashMap<UnitType, Unit<'game>>,
 }
 
-impl BuildEngine {
+impl<'game> BuildEngine<'game> {
     pub fn new() -> Self {
         BuildEngine::default()
     }
 
+    /// Marks an attempt failed (the build order was rejected) to throttle retries.
+    pub fn mark_fail(&mut self, unit_type: UnitType, frame: i32) {
+        self.last_fail.insert(unit_type, frame);
+        self.builders.remove(&unit_type);
+    }
+
     /// Picks a builder and tile when retry allows. The caller builds.
-    pub fn plan<'game>(
+    pub fn plan(
         &mut self,
         cx: Context<'_, 'game>,
         own: &UnitSet<'game>,
@@ -46,6 +56,14 @@ impl BuildEngine {
             }
         }
 
+        // Already on it: the reserved builder walks there or morphs.
+        if let Some(&builder) = self.builders.get(&unit_type) {
+            if builder.exists() && builder.build_type() == unit_type {
+                return None;
+            }
+            self.builders.remove(&unit_type);
+        }
+
         let base = scouting.my_start;
         let builder = pick_builder(cx, own, scouting, Position::new(base.x * 32, base.y * 32))?;
 
@@ -54,6 +72,7 @@ impl BuildEngine {
             self.last_fail.insert(unit_type, game.frame_count());
             return None;
         }
+        self.builders.insert(unit_type, builder);
         Some(Plan { unit_type, builder, tile })
     }
 }
