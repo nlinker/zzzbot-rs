@@ -1,11 +1,13 @@
 //! The ZZZKBot-rs bot: a StarCraft: Brood War AI module built on bwapi-rs.
 
+mod build_order;
 mod scouting;
 mod strategy;
 mod util;
 mod workers;
 
 use bwapi::{Bot, Color, Context, CoordinateType, Game, TextColor, Unit, UnitQuery, UnitSet, UnitType};
+use build_order::BuildEngine;
 use scouting::Scouting;
 use strategy::Strategy;
 
@@ -16,6 +18,7 @@ pub struct ZzzkBot<'game> {
     pub minerals: UnitSet<'game>,
     pub strategy: Strategy,
     pub scouting: Scouting<'game>,
+    pub build: BuildEngine,
     /// Unit handles, valid for the whole match.
     created: Vec<Unit<'game>>,
     /// An owned query result, read a few items at a time across frames.
@@ -97,6 +100,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
             minerals: game.minerals(),
             strategy: Strategy::new(seed),
             scouting: Scouting::new(cx, start),
+            build: BuildEngine::new(),
             created: Vec::new(),
             around_base: base.map(|depot| game.units_in_radius(depot.position(), 320)),
             scanned: 0,
@@ -113,6 +117,17 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
         self.draw_stats(cx);
         self.scouting.update(cx, &self.own_units);
         self.scouting.draw(cx);
+
+        // Debug line for the build engine: plan a spawning pool, show the find.
+        let pool = UnitType::ZERG_SPAWNING_POOL;
+        let status = match self.build.plan(cx, &self.own_units, &self.scouting, pool) {
+            Some(plan) => {
+                format!("pool: builder #{}, loc {},{}", plan.builder.id(), plan.tile.x, plan.tile.y)
+            }
+            None => String::from("pool: waiting (minerals, throttle, builder or loc)"),
+        };
+        cx.game().draw_text(CoordinateType::Screen, 10, 74, &status);
+
         self.give_orders(cx);
         self.scan_base(cx.game());
     }
