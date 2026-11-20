@@ -1,10 +1,12 @@
 //! The ZZZKBot-rs bot: a StarCraft: Brood War AI module built on bwapi-rs.
 
+mod scouting;
 mod strategy;
 mod util;
 mod workers;
 
 use bwapi::{Bot, Color, Context, CoordinateType, Game, TextColor, Unit, UnitQuery, UnitSet, UnitType};
+use scouting::Scouting;
 use strategy::Strategy;
 
 pub struct ZzzkBot<'game> {
@@ -13,6 +15,7 @@ pub struct ZzzkBot<'game> {
     pub own_units: UnitSet<'game>,
     pub minerals: UnitSet<'game>,
     pub strategy: Strategy,
+    pub scouting: Scouting<'game>,
     /// Unit handles, valid for the whole match.
     created: Vec<Unit<'game>>,
     /// An owned query result, read a few items at a time across frames.
@@ -93,6 +96,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
             own_units,
             minerals: game.minerals(),
             strategy: Strategy::new(seed),
+            scouting: Scouting::new(cx, start),
             created: Vec::new(),
             around_base: base.map(|depot| game.units_in_radius(depot.position(), 320)),
             scanned: 0,
@@ -101,6 +105,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
 
     fn on_frame(&mut self, cx: Context<'_, 'game>) {
         self.draw_stats(cx);
+        self.scouting.draw(cx);
         self.give_orders(cx);
         self.scan_base(cx.game());
     }
