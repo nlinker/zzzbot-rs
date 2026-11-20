@@ -44,6 +44,7 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 
     manage_gas(cx, bot);
     manage_hatcheries(cx, bot);
+    manage_lair(cx, bot);
     let sunkens = manage_sunkens(cx, bot);
     let extra = if made > 0 {
         format!(", lings +{made}")
@@ -90,6 +91,45 @@ fn manage_hatcheries<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         if !plan.builder.build(plan.unit_type, plan.tile) {
             bot.build.mark_fail(hatchery, cx.game().frame_count());
         }
+    }
+}
+
+/// Base defense: creep colonies up to the strategy's sunken count, finished
+/// ones morphed into sunken colonies. Returns that count, colonies included.
+
+/// Morphs the first hatchery into a lair once the pool and gas are up and
+/// the order wants tier-2 tech (mutas and hydras both need it).
+fn manage_lair<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+    let wants_t2 = matches!(
+        bot.strategy.order,
+        Some(BuildOrder::MutaRush) | Some(BuildOrder::HydraRush)
+    );
+    if !wants_t2 {
+        return;
+    }
+    let counts = crate::util::own_counts(&bot.own_units, cx);
+    let pool_done =
+        counts.completed.get(&UnitType::ZERG_SPAWNING_POOL).copied().unwrap_or(0) > 0;
+    let gas = counts.completed.get(&UnitType::ZERG_EXTRACTOR).copied().unwrap_or(0) > 0;
+    let tier2 = counts
+        .all
+        .get(&UnitType::ZERG_LAIR)
+        .copied()
+        .unwrap_or(0)
+        + counts.all.get(&UnitType::ZERG_HIVE).copied().unwrap_or(0)
+        + counts
+            .all
+            .get(&UnitType::ZERG_QUEENS_NEST)
+            .copied()
+            .unwrap_or(0);
+    if !pool_done || !gas || tier2 > 0 {
+        return;
+    }
+    if let Some(hatchery) = bot.own_units.iter(cx).find(|u| {
+        u.exists() && u.is_completed() && !u.is_morphing()
+            && u.unit_type() == UnitType::ZERG_HATCHERY
+    }) {
+        let _ = hatchery.morph(UnitType::ZERG_LAIR);
     }
 }
 
