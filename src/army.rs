@@ -4,6 +4,10 @@ use crate::strategy::BuildOrder;
 use crate::ZzzkBot;
 use bwapi::{Context, UnitType};
 
+/// Mutalisk count once the ultra cavern is up: the rest of the gas goes to
+/// ultralisks.
+const MUTA_CAP: i32 = 12;
+
 /// Morphs an overlord when free supply approaches zero: the margin is half
 /// an overlord's capacity, so the morph lands before the block.
 pub fn supply_overlords<'game>(
@@ -63,19 +67,26 @@ pub fn morph_lings<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> u
 }
 
 /// Muta production for the muta rush: idle larvae become mutalisks while
-/// minerals and gas last.
+/// minerals and gas last. Once the cavern is under way the count is capped:
+/// the gas is saved for ultralisks.
 pub fn morph_mutas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     if bot.strategy.order != Some(BuildOrder::MutaRush) {
         return;
     }
     // One count covers both morphing and finished spires: production starts
     // once the spire is on its way.
-    let spires = crate::util::own_counts(&bot.own_units, cx)
+    let counts = crate::util::own_counts(&bot.own_units, cx);
+    let spires = counts.all.get(&UnitType::ZERG_SPIRE).copied().unwrap_or(0);
+    if spires == 0 {
+        return;
+    }
+    let caverns = counts
         .all
-        .get(&UnitType::ZERG_SPIRE)
+        .get(&UnitType::ZERG_ULTRALISK_CAVERN)
         .copied()
         .unwrap_or(0);
-    if spires == 0 {
+    let mutas = counts.all.get(&UnitType::ZERG_MUTALISK).copied().unwrap_or(0);
+    if caverns > 0 && mutas >= MUTA_CAP {
         return;
     }
     let game = cx.game();
