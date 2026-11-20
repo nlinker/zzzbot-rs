@@ -1,6 +1,7 @@
 //! Worker and depot orders: demo mining until the full gathering discipline.
 
 use crate::army;
+use crate::build_order;
 use crate::strategy::BuildOrder;
 use crate::ZzzkBot;
 use bwapi::{Context, CoordinateType, UnitType};
@@ -35,6 +36,9 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 
     // While the pool is still to start, its 200 minerals are the budget: an
     // overlord morph here would eat them mid-flight of the builder.
+    let me = game.self_player().expect("the bot plays a match, not a replay");
+    let free = me.supply_total() - counts.supply_used;
+    build_order::extractor_trick(cx, bot, free);
     army::supply_overlords(cx, bot, &counts);
     let made = army::morph_lings(cx, bot);
 

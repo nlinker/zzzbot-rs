@@ -27,6 +27,9 @@ pub struct ZzzkBot<'game> {
     pub gas_drones: Vec<Unit<'game>>,
     /// The completed refinery, if any.
     pub refinery: Option<Unit<'game>>,
+    /// Extractor trick.
+    pub trick_builder: Option<Unit<'game>>,
+    pub trick_extractor: Option<Unit<'game>>,
     /// Unit handles, valid for the whole match.
     created: Vec<Unit<'game>>,
     /// An owned query result, read a few items at a time across frames.
@@ -116,6 +119,8 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
             build: BuildEngine::new(),
             gas_drones: Vec::new(),
             refinery: None,
+            trick_builder: None,
+            trick_extractor: None,
             created: Vec::new(),
             around_base: base.map(|depot| game.units_in_radius(depot.position(), 320)),
             scanned: 0,

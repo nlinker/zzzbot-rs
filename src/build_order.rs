@@ -3,10 +3,83 @@
 use std::collections::HashMap;
 
 use crate::scouting::Scouting;
+use crate::ZzzkBot;
 use bwapi::{Context, Position, TilePosition, Unit, UnitSet, UnitType};
 
 /// Frames between retries after a failed placement.
 const RETRY_FRAMES: i32 = 24;
+
+/// Supply freed by a morphing extractor: its drone stops costing supply.
+/// Cancelling the morph refunds the minerals and returns the drone.
+pub fn extractor_trick<'game>(
+    cx: Context<'_, 'game>,
+    bot: &mut ZzzkBot<'game>,
+    free_supply: i32,
+) {
+    let game = cx.game();
+    // A ling egg is two zerglings; below that the bot is supply-blocked.
+    let egg_supply = UnitType::ZERG_ZERGLING.supply_required() * 2;
+
+    // Phase 2: the extractor morphs; cancel it once the larva can fit.
+    if let Some(extractor) = bot.trick_extractor {
+        if extractor.exists() && extractor.is_morphing() {
+            if free_supply < egg_supply {
+                return; // keep the drone consumed until the trick is needed
+            }
+            let _ = extractor.cancel_morph();
+            game.send_text("extractor trick: cancelled");
+            bot.trick_extractor = None;
+            return;
+        }
+        bot.trick_extractor = None;
+        return;
+    }
+
+    // Phase 1: the builder was sent; wait for the morph to start.
+    if let Some(builder) = bot.trick_builder {
+        if builder.exists() && builder.unit_type() == UnitType::ZERG_EXTRACTOR {
+            bot.trick_builder = None;
+            bot.trick_extractor = Some(builder);
+            return;
+        }
+        if builder.exists() && builder.build_type() == UnitType::ZERG_EXTRACTOR {
+            return;
+        }
+        bot.trick_builder = None; // dead or the order failed
+        return;
+    }
+
+    // Nothing under way: start the trick while blocked, if a geyser is free.
+    if free_supply >= egg_supply {
+        return;
+    }
+    let base = bot.scouting.my_start;
+    let home = Position::new(base.x * 32, base.y * 32);
+    let Some(geyser) = game
+        .geysers()
+        .iter(cx)
+        .find(|&g| g.exists() && g.distance_to_position(home) < 25 * 32)
+    else {
+        return;
+    };
+    let Some(builder) = bot
+        .own_units
+        .iter(cx)
+        .find(|u| {
+            u.exists() && u.is_completed() && !u.is_morphing() && !u.is_constructing()
+                && u.unit_type() == UnitType::ZERG_DRONE
+                && !bot.scouting.is_scout(*u)
+                && !bot.build.is_builder(*u)
+                && !bot.gas_drones.contains(u)
+        })
+    else {
+        return;
+    };
+    if builder.build(UnitType::ZERG_EXTRACTOR, geyser.tile_position()) {
+        game.send_text("extractor trick: started");
+        bot.trick_builder = Some(builder);
+    }
+}
 
 /// A build with its builder and tile chosen, ready to be ordered.
 pub struct Plan<'game> {
