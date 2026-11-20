@@ -10,7 +10,7 @@ pub enum Opener {
     Standard,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub enum BuildOrder {
     Pool4,
     Speedling,

@@ -1,5 +1,6 @@
 //! The ZZZKBot-rs bot: a StarCraft: Brood War AI module built on bwapi-rs.
 
+mod army;
 mod build_order;
 mod scouting;
 mod strategy;

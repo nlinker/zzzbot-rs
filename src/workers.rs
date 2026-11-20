@@ -1,5 +1,6 @@
 //! Worker and depot orders: demo mining until the full gathering discipline.
 
+use crate::army;
 use crate::ZzzkBot;
 use bwapi::{Context, CoordinateType, UnitType};
 
@@ -26,43 +27,16 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         };
         game.draw_text(CoordinateType::Screen, 10, 74, &status);
     } else {
-        game.draw_text(CoordinateType::Screen, 10, 74, "pool: built");
-    }
-
-    // While the pool is still to start, its 200 minerals are the budget: an
-    // overlord morph here would eat them mid-flight of the builder.
-    if have_pool {
-        supply_overlords(cx, bot, &counts);
-    }
-}
-
-/// Morphs an overlord when free supply approaches zero: the margin is half
-/// an overlord's capacity, so the morph lands before the block.
-fn supply_overlords<'game>(
-    cx: Context<'_, 'game>,
-    bot: &mut ZzzkBot<'game>,
-    counts: &crate::util::OwnCounts,
-) {
-    let game = cx.game();
-    let me = game.self_player().expect("the bot plays a match, not a replay");
-    let free = me.supply_total() - counts.supply_used;
-    let margin = UnitType::ZERG_OVERLORD.supply_provided() / 2;
-    if free > margin {
-        return;
-    }
-    // One overlord under way is enough: `incomplete` counts egg payloads too.
-    if counts.incomplete.get(&UnitType::ZERG_OVERLORD).copied().unwrap_or(0) > 0 {
-        return;
-    }
-
-    if let Some(larva) = bot
-        .own_units
-        .iter(cx)
-        .find(|u| u.exists() && u.is_idle() && u.unit_type() == UnitType::ZERG_LARVA)
-    {
-        if larva.morph(UnitType::ZERG_OVERLORD) {
-            game.send_text("morphing overlord");
-        }
+        // While the pool is still to start, its 200 minerals are the budget:
+        // an overlord morph here would eat them mid-flight of the builder.
+        army::supply_overlords(cx, bot, &counts);
+        let made = army::morph_lings(cx, bot);
+        game.draw_text(
+            CoordinateType::Screen,
+            10,
+            74,
+            &format!("pool: built, lings +{made}"),
+        );
     }
 }
 
