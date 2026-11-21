@@ -248,10 +248,6 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
         self.scan_base(cx.game());
     }
 
-    fn on_unit_create(&mut self, _cx: Context<'_, 'game>, unit: Unit<'game>) {
-        self.created.push(unit);
-    }
-
     fn on_unit_show(&mut self, cx: Context<'_, 'game>, unit: Unit<'game>) {
         if let Some(race) = self.scouting.note_enemy_unit(unit) {
             self.strategy.finalize(race);
@@ -272,6 +268,10 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
                 ),
             );
         }
+    }
+
+    fn on_unit_create(&mut self, _cx: Context<'_, 'game>, unit: Unit<'game>) {
+        self.created.push(unit);
     }
 }
 
