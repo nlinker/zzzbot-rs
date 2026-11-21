@@ -2,7 +2,7 @@
 
 use crate::strategy::BuildOrder;
 use crate::ZzzkBot;
-use bwapi::{Context, Position, UnitType};
+use bwapi::{Context, Position, Unit, UnitType};
 
 /// Army units that take orders from the push layer.
 const ARMY_TYPES: [UnitType; 4] = [
@@ -393,24 +393,52 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             ),
         );
     }
-    // Group threat: one marine shooting one ling must pull the WHOLE pack —
-    // solo re-targeting trades the wave one corpse at a time. Any enemy
-    // ground unit near any wave member becomes the pack's focus (lowest hp
-    // first) until it dies.
-    let group_threat = enemies
+    // Zealot rule: engage an enemy unit only with local superiority — a
+    // fresh one takes four lings, a bruised one three, a dying one one.
+    // Solo yolo trades the wave one corpse at a time. Without the numbers,
+    // break contact and wait for hatchlings; meanwhile probes and buildings
+    // are always fair game.
+    let required = |e: Unit<'game>| {
+        // Workers are always worth it: a lone ling eats a probe.
+        if e.unit_type().is_worker() {
+            return 1;
+        }
+        let max = e.unit_type().max_hit_points();
+        let hp = e.hit_points();
+        if hp * 3 > max * 2 {
+            4
+        } else if hp * 3 > max {
+            3
+        } else {
+            1
+        }
+    };
+    let nearby_force = |e: Unit<'game>| {
+        wave.iter().filter(|u| u.distance_to_unit(e) < 8 * 32).count()
+    };
+    let focus = enemies
         .iter()
         .copied()
-        .filter(|&e| wave.iter().any(|u| u.distance_to_unit(e) < 10 * 32))
+        .filter(|&e| nearby_force(e) >= required(e))
         .min_by_key(|&e| e.hit_points());
-    // First real fight (not scout contact): slow the game down to watch it.
-    if group_threat.is_some() && !bot.engaged {
+    // First real fight we actually take (not scout contact, not a dodge):
+    // slow the game down to watch it.
+    if focus.is_some() && !bot.engaged {
         bot.engaged = true;
         game.set_local_speed(crate::LOCAL_SPEED_ENGAGE);
         bot.log(cx, "engage: first fight, slowing down");
     }
+    let home = Position::new(
+        bot.scouting.my_start.x * 32 + 64,
+        bot.scouting.my_start.y * 32 + 48,
+    );
     for unit in wave {
-        let ok = if let Some(threat) = group_threat {
+        let ok = if let Some(threat) = focus {
             unit.attack_unit(threat)
+        } else if enemies.iter().any(|&e| unit.distance_to_unit(e) < 10 * 32) {
+            // Outnumbered locally: disengage toward home; the fresh
+            // hatchlings are on the way and lings outrun zealots.
+            unit.move_to(home)
         } else if let Some(bld) = nearest_building(unit.position()) {
             unit.attack_unit(bld)
         } else {
