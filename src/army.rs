@@ -402,6 +402,12 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         .copied()
         .filter(|&e| wave.iter().any(|u| u.distance_to_unit(e) < 10 * 32))
         .min_by_key(|&e| e.hit_points());
+    // First real fight (not scout contact): slow the game down to watch it.
+    if group_threat.is_some() && !bot.engaged {
+        bot.engaged = true;
+        game.set_local_speed(crate::LOCAL_SPEED_ENGAGE);
+        bot.log(cx, "engage: first fight, slowing down");
+    }
     for unit in wave {
         let ok = if let Some(threat) = group_threat {
             unit.attack_unit(threat)

@@ -18,7 +18,9 @@ use scouting::Scouting;
 use workers::macro_orders;
 use strategy::{Opener, Strategy};
 
-const LOCAL_SPEED: i32 = 1;
+const LOCAL_SPEED_START: i32 = 0;
+/// Game speed for the first real fight: the wave meets an enemy unit.
+pub const LOCAL_SPEED_ENGAGE: i32 = 1;
 
 pub struct ZzzkBot<'game> {
     name: String,
@@ -37,6 +39,8 @@ pub struct ZzzkBot<'game> {
     pub trick_extractor: Option<Unit<'game>>,
     /// The army already pushed once; later waves fire at the normal threshold.
     pub pushed: bool,
+    /// First combat engagement seen: the game slows to LOCAL_SPEED_ENGAGE.
+    pub engaged: bool,
     /// Pool4 one-shot: the single extra drone after the pool starts.
     pub pool4_drone: bool,
     /// Hunt-mode sweep memory: base/expansion points already checked and
@@ -149,7 +153,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
         game.send_text(&format!("Hello from Rust! {name} reporting in"));
 
         // Fast-forward (single player only); raise the skip for even more speed.
-        game.set_local_speed(LOCAL_SPEED);
+        game.set_local_speed(LOCAL_SPEED_START);
         // game.set_frame_skip(2);
 
         let me = game.self_player().expect("the bot plays a match, not a replay");
@@ -197,6 +201,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
             trick_builder: None,
             trick_extractor: None,
             pushed: false,
+            engaged: false,
             pool4_drone: false,
             hunt_log: Vec::new(),
             logger,
