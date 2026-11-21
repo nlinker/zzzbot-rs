@@ -36,18 +36,26 @@ pub fn extractor_trick<'game>(
         return;
     }
 
-    // Phase 1: the builder was sent; wait for the morph to start.
+    // Phase 1: the builder was sent; wait for the morph to start. A walking
+    // builder carries no build type for the whole trip — only an idle one
+    // means the order died, anything else is still on its way.
     if let Some(builder) = bot.trick_builder {
         if builder.exists() && builder.unit_type() == UnitType::ZERG_EXTRACTOR {
             bot.trick_builder = None;
             bot.trick_extractor = Some(builder);
             return;
         }
-        if builder.exists() && builder.build_type() == UnitType::ZERG_EXTRACTOR {
+        if builder.exists() && (builder.build_type() == UnitType::ZERG_EXTRACTOR || !builder.is_idle()) {
             return;
         }
         bot.trick_builder = None; // dead or the order failed
-        bot.log(cx, "extractor trick: builder lost, order died");
+        bot.log(
+            cx,
+            &format!(
+                "extractor trick: order died: {}",
+                game.last_error().name()
+            ),
+        );
         return;
     }
 

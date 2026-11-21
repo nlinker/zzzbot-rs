@@ -59,7 +59,12 @@ impl Strategy {
             Opener::Pool4 => Some(BuildOrder::Pool4),
             Opener::Standard => None,
         };
-        Strategy { rng, opener, order, num_sunkens: 2 }
+        // The all-in spends nothing on defense: every mineral is a ling.
+        let num_sunkens = match opener {
+            Opener::Pool4 => 0,
+            Opener::Standard => 2,
+        };
+        Strategy { rng, opener, order, num_sunkens }
     }
 
     /// Picks the final order by enemy race.

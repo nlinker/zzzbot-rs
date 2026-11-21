@@ -197,13 +197,31 @@ pub fn morph_hydras<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     }
 }
 
-/// Attack-moves the army to the enemy start in waves: the push fires only
-/// when enough units stand idle (mutas 4, ultras 2, hydras 8, lings 16), and
-/// sends all of them at once. Freshly built units hold at the base until the
-/// next wave gathers — a trickle of singles dies one by one on the way.
+/// Attack-moves the army in waves. With the enemy start known, the goal is
+/// that start; unknown — the wave moves to a staging point between the
+/// remaining candidate starts, so no time is wasted waiting for the scouts:
+/// the army walks toward the enemy while the scouts narrow it down, and
+/// anything met on the way is engaged (attack-move).
 pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
-    let Some(target) = bot.scouting.enemy_start else {
-        return;
+    let game = cx.game();
+    // Centroid of the unscouted candidate starts; map center when the set is
+    // empty (enemy known to be nowhere among starts — expansions).
+    let staging = {
+        let locs: Vec<_> = bot.scouting.unscouted.iter().copied().collect();
+        if locs.is_empty() {
+            Position::new(game.map_width() * 16, game.map_height() * 16)
+        } else {
+            let n = locs.len() as i32;
+            let sum = locs.iter().fold((0, 0), |(sx, sy), loc| {
+                (sx + loc.x * 32 + 64, sy + loc.y * 32 + 48)
+            });
+            Position::new(sum.0 / n, sum.1 / n)
+        }
+    };
+    // The wave goal: the enemy start when known, otherwise the staging point.
+    let (goal, target_known) = match bot.scouting.enemy_start {
+        Some(loc) => (Position::new(loc.x * 32, loc.y * 32), true),
+        None => (staging, false),
     };
     let wave: Vec<_> = bot
         .own_units
@@ -218,19 +236,20 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 && u.is_idle()
         })
         .collect();
-    // The first wave strikes at double strength; later waves fire at the
-    // normal threshold so reinforcements keep flowing.
-    let mult = if bot.pushed { 1 } else { 2 };
+    // The all-in rushes with the first six lings and flows continuously; the
+    // standard openers strike first at double strength, later waves at the
+    // normal threshold.
+    let all_in = bot.strategy.order == Some(BuildOrder::Pool4);
+    let mult = if all_in || bot.pushed { 1 } else { 2 };
+    let ling_need = if all_in { 6 } else { 16 };
     let is_wave = |t: UnitType| wave.iter().filter(|u| u.unit_type() == t).count();
     let ready = is_wave(UnitType::ZERG_MUTALISK) >= 4 * mult
         || is_wave(UnitType::ZERG_ULTRALISK) >= 2 * mult
         || is_wave(UnitType::ZERG_HYDRALISK) >= 8 * mult
-        || is_wave(UnitType::ZERG_ZERGLING) >= 16 * mult;
+        || is_wave(UnitType::ZERG_ZERGLING) >= ling_need * mult;
     if !ready {
         return;
     }
-    let goal = Position::new(target.x * 32, target.y * 32);
-    let game = cx.game();
     let enemy = bot.scouting.enemy;
     // Targets of opportunity: a visible enemy unit near a wave member is
     // attacked directly instead of the march goal — attack-move only
@@ -263,11 +282,16 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             }
         }
     }
+    // A staging move is not the strike: keep the double-strength first wave
+    // for the moment the enemy start is actually known.
+    if target_known {
+        bot.pushed = true;
+    }
     let first = if mult == 2 { "first " } else { "" };
-    bot.pushed = true;
+    let stage = if target_known { "" } else { ", staging between unknowns" };
     bot.log(
         cx,
-        &format!("push: {first}wave of {size} attack-move to {},{}", target.x, target.y),
+        &format!("push: {first}wave of {size} attack-move to {},{}{stage}", goal.x / 32, goal.y / 32),
     );
 }
 
