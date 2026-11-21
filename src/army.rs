@@ -227,13 +227,18 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             Position::new(sum.0 / n, sum.1 / n)
         }
     };
-    // The wave goal, by priority: the enemy start when known; otherwise the
-    // staging point. Hunt mode (see below) replaces a razed start. Start-box
-    // CENTER (+64,+48): the raw tile corner often sits inside the minerals
-    // of the adjacent expansion and the pather refuses it.
-    let (mut goal, mut target_known) = match bot.scouting.enemy_start {
-        Some(loc) => (Position::new(loc.x * 32 + 64, loc.y * 32 + 48), true),
-        None => (staging, false),
+    // The wave goal, by priority: a SEEN enemy building (exact, survives
+    // fog), else the enemy start when known, else the staging point. Hunt
+    // mode (see below) replaces a razed goal. Start-box CENTER (+64,+48):
+    // the raw tile corner often sits inside the minerals of the adjacent
+    // expansion and the pather refuses it.
+    let (mut goal, mut target_known) = if let Some(bpos) = bot.scouting.seen_building {
+        (bpos, true)
+    } else {
+        match bot.scouting.enemy_start {
+            Some(loc) => (Position::new(loc.x * 32 + 64, loc.y * 32 + 48), true),
+            None => (staging, false),
+        }
     };
     // Enemy lists come BEFORE the wave filter: a unit chewing a building
     // while an outmatched fight walks up must re-evaluate before the first
@@ -290,10 +295,12 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     if !ready {
         return;
     }
-    // Hunt mode: the wave stands on its goal with nothing enemy visible
-    // anywhere — sweep the remaining bases and mineral clusters and destroy
-    // whatever is found. Visited points are logged: without that, the swarm
-    // ping-pongs between the two nearest ones forever.
+    // Hunt mode: the wave stands on its goal with nothing enemy visible.
+    // FIRST sweep the goal's own area — a base half-covered by fog still
+    // hides buildings, and leaving early looks like "nothing here" while
+    // the enemy rebuilds behind our backs. Only a fully-swept empty base
+    // hands the swarm over to the next one.
+    let mut local_sweep: Vec<Position> = Vec::new();
     if !enemies.is_empty() || !enemy_buildings.is_empty() {
         // something to kill: handled per-unit below
     } else if !wave.is_empty() {
@@ -304,31 +311,61 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         let standing_on_goal = centroid.x.abs_diff(goal.x) < 10 * 32
             && centroid.y.abs_diff(goal.y) < 10 * 32;
         if standing_on_goal {
-            bot.hunt_log.push(goal);
-            let mut points = hunt_points(cx, bot);
-            points.retain(|&p| {
-                (p.x.abs_diff(centroid.x) >= 10 * 32 || p.y.abs_diff(centroid.y) >= 10 * 32)
-                    && !bot
-                        .hunt_log
-                        .iter()
-                        .any(|&v| (v.x - p.x).abs() + (v.y - p.y).abs() < 8 * 32)
-            });
-            if points.is_empty() {
-                // Full sweep done and the enemy is still hiding: start over.
-                bot.hunt_log.clear();
-                points = hunt_points(cx, bot);
-                points.retain(|&p| {
-                    p.x.abs_diff(centroid.x) >= 10 * 32 || p.y.abs_diff(centroid.y) >= 10 * 32
-                });
-            }
-            if let Some(next) = points
+            // Ring sweep around the goal: standing at the center sees only
+            // half a base; walking the ring for a fixed dwell reveals all
+            // of it before the swarm may call the base empty and leave.
+            const RING: [(i32, i32); 8] = [
+                (6, 0),
+                (-6, 0),
+                (0, 6),
+                (0, -6),
+                (6, 6),
+                (6, -6),
+                (-6, 6),
+                (-6, -6),
+            ];
+            let ring: Vec<Position> = RING
                 .iter()
-                .min_by_key(|&&p| (p.x - centroid.x).abs() + (p.y - centroid.y).abs())
-            {
-                goal = *next;
-                target_known = false; // a hunt move is not the strike
-                bot.log(cx, "push: goal empty, hunting next base");
+                .map(|&(dx, dy)| Position::new(goal.x + dx * 32, goal.y + dy * 32))
+                .collect();
+            let frame = game.frame_count();
+            if bot.sweep_until == 0 {
+                bot.sweep_until = frame + 300;
+                bot.log(cx, "push: sweeping the base area");
             }
+            if frame < bot.sweep_until {
+                local_sweep = ring;
+            } else {
+                bot.sweep_until = 0;
+                bot.hunt_log.push(goal);
+                let mut points = hunt_points(cx, bot);
+                points.retain(|&p| {
+                    (p.x.abs_diff(centroid.x) >= 10 * 32 || p.y.abs_diff(centroid.y) >= 10 * 32)
+                        && !bot
+                            .hunt_log
+                            .iter()
+                            .any(|&v| (v.x - p.x).abs() + (v.y - p.y).abs() < 8 * 32)
+                });
+                if points.is_empty() {
+                    // Full sweep done and the enemy is still hiding: start over.
+                    bot.hunt_log.clear();
+                    points = hunt_points(cx, bot);
+                    points.retain(|&p| {
+                        p.x.abs_diff(centroid.x) >= 10 * 32 || p.y.abs_diff(centroid.y) >= 10 * 32
+                    });
+                }
+                if let Some(next) = points
+                    .iter()
+                    .min_by_key(|&&p| (p.x - centroid.x).abs() + (p.y - centroid.y).abs())
+                {
+                    goal = *next;
+                    target_known = false; // a hunt move is not the strike
+                    bot.log(cx, "push: base swept empty, hunting next base");
+                }
+            }
+        } else {
+            // Left the goal (new hunt target): any old sweep is over.
+            bot.sweep_until = 0;
         }
     }
     // Muta micro owns mutalisk orders: wounded ones would only be re-sent
@@ -379,6 +416,11 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 .iter()
                 .any(|&v| (v.x - p.x).abs() + (v.y - p.y).abs() < 8 * 32)
         });
+    }
+    // A base sweep overrides everything: the ring around the current goal
+    // beats hopping to the next base with half the area still in fog.
+    if !local_sweep.is_empty() {
+        candidates = local_sweep;
     }
     let frame = game.frame_count();
     let mut fails = 0;

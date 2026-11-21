@@ -75,6 +75,9 @@ pub struct Scouting<'game> {
     oneshot_picked: bool,
     /// Set on any enemy_start change: the army re-aims its marchers once.
     pub retarget_fresh: bool,
+    /// Last seen enemy building position (survives fog): the wave targets it
+    /// directly — a start-location pin misses bases built off the start box.
+    pub seen_building: Option<Position>,
 }
 
 impl<'game> Scouting<'game> {
@@ -105,6 +108,7 @@ impl<'game> Scouting<'game> {
             scout_oneshot: all_in,
             oneshot_picked: false,
             retarget_fresh: false,
+            seen_building: None,
         }
     }
 
@@ -352,6 +356,12 @@ impl<'game> Scouting<'game> {
         // matters, and waiting for a depot wastes the turn it takes to spot
         // one.
         if !unit.is_flying() {
+            if unit.unit_type().is_building() {
+                // Remember ANY seen building: bases built off the start box
+                // never pin a start, and the wave would run to an empty
+                // corner while the real base sits a screen away.
+                self.seen_building = Some(position);
+            }
             let pinned = self.start_locations.iter().copied().find(|&loc| {
                 loc != self.my_start && walk_dist(loc_center(loc), position) < START_RADIUS
             });

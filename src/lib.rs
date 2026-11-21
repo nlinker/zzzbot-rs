@@ -51,6 +51,9 @@ pub struct ZzzkBot<'game> {
     /// progress check; a unit that barely moved with live orders gets a
     /// detour through the map center.
     pub army_progress: std::collections::HashMap<i32, (Position, i32)>,
+    /// Base-sweep dwell: until this frame the hunt fans over the ring
+    /// around the current goal; 0 = no sweep running.
+    pub sweep_until: i32,
     /// Decision-point log, truncated at match start.
     pub logger: Logger,
     /// Unit handles, valid for the whole match.
@@ -209,6 +212,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
             pool4_drone: false,
             hunt_log: Vec::new(),
             army_progress: std::collections::HashMap::new(),
+            sweep_until: 0,
             logger,
             created: Vec::new(),
             around_base: base.map(|depot| game.units_in_radius(depot.position(), 320)),
