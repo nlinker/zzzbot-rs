@@ -20,11 +20,20 @@ pub fn extractor_trick<'game>(
     // A ling egg is two zerglings; below that the bot is supply-blocked.
     let egg_supply = UnitType::ZERG_ZERGLING.supply_required() * 2;
 
-    // Phase 2: the extractor morphs; cancel it once the larva can fit.
+    // Phase 2: the extractor morphs. Cancel only once the freed supply was
+    // actually spent — a zergling egg is under way — or there is no larva
+    // left to spend it on; cancelling on the freed supply alone would return
+    // the drone before any egg starts and the trick loops on nothing.
     if let Some(extractor) = bot.trick_extractor {
         if extractor.exists() && extractor.is_morphing() {
-            if free_supply < egg_supply {
-                return; // keep the drone consumed until the trick is needed
+            let egg_underway = bot.own_units.iter(cx).any(|u| {
+                u.exists() && u.unit_type() == UnitType::ZERG_EGG
+            });
+            let larva_left = bot.own_units.iter(cx).any(|u| {
+                u.exists() && u.is_idle() && u.unit_type() == UnitType::ZERG_LARVA
+            });
+            if !egg_underway && larva_left {
+                return; // keep the drone consumed until the egg starts
             }
             let _ = extractor.cancel_morph();
             game.send_text("extractor trick: cancelled");
@@ -59,7 +68,33 @@ pub fn extractor_trick<'game>(
         return;
     }
 
-    // Nothing under way: start the trick while blocked, if a geyser is free.
+    // Orphan fallback: a lost phase-1 track ("order died" while the queued
+    // build command still lived) leaves a morphing extractor nobody cancels
+    // — the drone is consumed and the supply never comes back. On the all-in
+    // any morphing extractor IS the trick's: same cancel condition as
+    // phase 2.
+    if matches!(bot.strategy.opener, Opener::Pool4) {
+        for unit in bot.own_units.iter(cx) {
+            if unit.exists() && unit.is_morphing() && unit.unit_type() == UnitType::ZERG_EXTRACTOR {
+                let egg_underway = bot.own_units.iter(cx).any(|u| {
+                    u.exists() && u.unit_type() == UnitType::ZERG_EGG
+                });
+                let larva_left = bot.own_units.iter(cx).any(|u| {
+                    u.exists() && u.is_idle() && u.unit_type() == UnitType::ZERG_LARVA
+                });
+                if egg_underway || !larva_left {
+                    let _ = unit.cancel_morph();
+                    bot.log(cx, "extractor trick: orphan cancelled");
+                }
+                return;
+            }
+        }
+    }
+
+    // Nothing under way. Start conditions: pool complete (lings morphable),
+    // supply blocked, a free larva to spend the freed supply on, minerals
+    // for the extractor AND the lings, and a buildable geyser — anything
+    // less consumes the drone for nothing.
     if free_supply >= egg_supply {
         return;
     }
@@ -71,12 +106,39 @@ pub fn extractor_trick<'game>(
     if !matches!(bot.strategy.opener, Opener::Pool4) {
         return;
     }
+    let pool_done = bot.own_units.iter(cx).any(|u| {
+        u.exists() && u.is_completed() && u.unit_type() == UnitType::ZERG_SPAWNING_POOL
+    });
+    if !pool_done {
+        return;
+    }
+    let me = game.self_player().expect("the bot plays a match, not a replay");
+    let cost = UnitType::ZERG_EXTRACTOR.mineral_price()
+        + UnitType::ZERG_ZERGLING.mineral_price() * 2;
+    if me.minerals() < cost {
+        return;
+    }
+    let larva_free = bot
+        .own_units
+        .iter(cx)
+        .any(|u| u.exists() && u.is_idle() && u.unit_type() == UnitType::ZERG_LARVA);
+    if !larva_free {
+        return;
+    }
     let base = bot.scouting.my_start;
     let home = Position::new(base.x * 32, base.y * 32);
     let Some(geyser) = game
         .geysers()
         .iter(cx)
         .filter(|&g| g.exists() && g.distance_to_position(home) < 25 * 32)
+        .filter(|&g| {
+            game.can_build_here_with(
+                g.tile_position(),
+                UnitType::ZERG_EXTRACTOR,
+                None,
+                false,
+            )
+        })
         .min_by_key(|&g| g.distance_to_position(home))
     else {
         return;

@@ -485,7 +485,14 @@ fn manage_gas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         }
     }
 
-    // Staff the completed refinery: reassign the drones nearest to it.
+    // Staff the completed refinery: reassign the drones nearest to it. The
+    // all-in skips this too: its only extractor is a supply trick, staffing
+    // it would empty the mineral line (one match ended with every drone on
+    // gas and zero income).
+    let all_in_staff = bot.strategy.order == Some(BuildOrder::Pool4);
+    if all_in_staff {
+        return;
+    }
     let Some(refinery) = bot.refinery else { return };
     while bot.gas_drones.len() < GAS_WORKERS {
         let Some(worker) = bot

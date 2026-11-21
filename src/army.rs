@@ -271,12 +271,12 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 && u.unit_type().is_building()
         })
         .collect();
-    // Hunt mode: the start is rubble (the wave stands on it, nothing enemy
-    // visible anywhere) — roam the remaining bases and mineral clusters and
-    // destroy whatever is found instead of clumping on the ruins.
+    // Hunt mode: the wave stands on its goal with nothing enemy visible
+    // anywhere — roam the remaining bases and mineral clusters and destroy
+    // whatever is found instead of clumping on the ruins.
     if !enemies.is_empty() || !enemy_buildings.is_empty() {
         // something to kill: handled per-unit below
-    } else if target_known && !wave.is_empty() {
+    } else if !wave.is_empty() {
         let centroid = wave
             .iter()
             .fold((0, 0), |(sx, sy), u| (sx + u.position().x, sy + u.position().y));
@@ -294,7 +294,7 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             {
                 goal = *next;
                 target_known = false; // a hunt move is not the strike
-                bot.log(cx, "push: base razed, hunting expansions");
+                bot.log(cx, "push: goal empty, hunting next base");
             }
         }
     }
@@ -311,6 +311,19 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             .copied()
             .min_by_key(|&b| (b.position().x - pos.x).abs() + (b.position().y - pos.y).abs())
     };
+    // Unknown enemy start: the wave splits — every unit runs to its nearest
+    // unscouted start instead of waiting at a staging point for the scouts.
+    // Standing there clears the location (our own vision), an empty one
+    // sends the survivors to the next candidate via the hunt below.
+    let candidates: Vec<Position> = if target_known {
+        Vec::new()
+    } else {
+        bot.scouting
+            .unscouted
+            .iter()
+            .map(|&loc| Position::new(loc.x * 32 + 64, loc.y * 32 + 48))
+            .collect()
+    };
     for unit in wave {
         if let Some(bld) = nearest_building(unit.position()) {
             unit.attack_unit(bld);
@@ -326,7 +339,12 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 unit.attack_unit(e);
             }
             None => {
-                unit.attack_position(goal);
+                let unit_goal = candidates
+                    .iter()
+                    .min_by_key(|&&p| (p.x - unit.position().x).abs() + (p.y - unit.position().y).abs())
+                    .copied()
+                    .unwrap_or(goal);
+                unit.attack_position(unit_goal);
             }
         }
     }
