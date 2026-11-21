@@ -234,9 +234,10 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 && u.exists()
                 && u.is_completed()
                 && !u.is_morphing()
-                // Only standing units: in-combat and marching ones keep
-                // their orders, and re-issuing each frame spams the log.
-                && u.is_idle()
+                // Standing units, plus units taking hits: a wave chewing a
+                // building while melee units kill it must re-evaluate, or it
+                // dies fixated on the gate.
+                && (u.is_idle() || u.is_under_attack())
         })
         .collect();
     // The all-in rushes with the first six lings and flows continuously; the
@@ -382,8 +383,28 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         );
     }
     for unit in wave {
+        // Melee self-preservation: an enemy unit in weapon range comes
+        // FIRST, before any building — chewing a gate while zealots hit
+        // back just trades the wave for a building.
+        let adjacent = enemies
+            .iter()
+            .copied()
+            .filter(|&e| unit.distance_to_unit(e) < 6 * 32)
+            .min_by_key(|&e| unit.distance_to_unit(e));
+        if let Some(e) = adjacent {
+            let ok = unit.attack_unit(e);
+            if !ok {
+                fails += 1;
+                last_err = game.last_error().name().to_string();
+            }
+            continue;
+        }
         if let Some(bld) = nearest_building(unit.position()) {
-            unit.attack_unit(bld);
+            let ok = unit.attack_unit(bld);
+            if !ok {
+                fails += 1;
+                last_err = game.last_error().name().to_string();
+            }
             continue;
         }
         let near = enemies
