@@ -643,7 +643,9 @@ impl<'game> ZzzkBot<'game> {
                     unit.right_click_unit(mineral);
                 }
             } else if unit_type.is_resource_depot() && !unit.is_training() {
-                if drones < DRONE_CAP {
+                // The all-in needs every larva for lings: drone eggs eat both
+                // the larvae and the supply the first lings need.
+                if drones < DRONE_CAP && self.strategy.order != Some(BuildOrder::Pool4) {
                     unit.train(unit_type.race().worker());
                 }
             }

@@ -168,6 +168,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
             Opener::Pool4 => "4pool",
             Opener::Standard => "standard",
         };
+        let hold_scout = matches!(strategy.opener, Opener::Pool4);
         game.send_text(&format!("seed {seed:016x}, opener {opener}"));
         let logger = Logger::open();
         logger.line(
@@ -183,7 +184,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
             own_units,
             minerals: game.minerals(),
             strategy,
-            scouting: Scouting::new(cx, start),
+            scouting: Scouting::new(cx, start, hold_scout),
             build: BuildEngine::new(),
             gas_drones: Vec::new(),
             refinery: None,

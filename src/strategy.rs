@@ -50,11 +50,11 @@ pub struct Strategy {
 }
 
 impl Strategy {
-    /// Debug: always the standard opener until the randomized pipeline is
-    /// verified; flip back to the weighted pick afterwards.
+    /// Acceptance (step 28): always 4-pool — the criterion is a win over the
+    /// built-in Terran easy AI. The weighted pick returns in step 29.
     pub fn new(seed: u64) -> Self {
         let rng = Rng::new(seed);
-        let opener = Opener::Standard;
+        let opener = Opener::Pool4;
         let order = match opener {
             Opener::Pool4 => Some(BuildOrder::Pool4),
             Opener::Standard => None,

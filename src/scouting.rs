@@ -66,10 +66,13 @@ pub struct Scouting<'game> {
     drone_retreating: bool,
     /// The initial scouting overlord must never be sent back after first contact.
     overlord_retired: bool,
+    /// All-in opener: the drone scout must not leave before the pool order —
+    /// four mining drones reach the 200 minerals measurably faster.
+    hold_drone_until_pool: bool,
 }
 
 impl<'game> Scouting<'game> {
-    pub fn new(cx: Context<'_, 'game>, my_start: TilePosition) -> Self {
+    pub fn new(cx: Context<'_, 'game>, my_start: TilePosition, hold_drone_until_pool: bool) -> Self {
         let game = cx.game();
         let start_locations = game.start_locations();
         let unscouted = start_locations.iter().copied()
@@ -92,6 +95,7 @@ impl<'game> Scouting<'game> {
             unsafe_starts: HashSet::new(),
             drone_retreating: false,
             overlord_retired: false,
+            hold_drone_until_pool,
         }
     }
 
@@ -175,7 +179,14 @@ impl<'game> Scouting<'game> {
             }
         }
 
-        self.update_drone(cx, own);
+        // All-in: hold the drone scout until the pool is placed — mining
+        // reaches 200 faster with four drones; the overlord covers the sky.
+        let pool_exists = own.iter(cx).any(|u| {
+            u.exists() && u.unit_type() == UnitType::ZERG_SPAWNING_POOL
+        });
+        if !self.hold_drone_until_pool || pool_exists {
+            self.update_drone(cx, own);
+        }
         self.update_overlord(cx, own);
     }
 
