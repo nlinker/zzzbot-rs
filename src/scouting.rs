@@ -69,10 +69,16 @@ pub struct Scouting<'game> {
     /// All-in opener: the drone scout must not leave before the pool order —
     /// four mining drones reach the 200 minerals measurably faster.
     hold_drone_until_pool: bool,
+    /// One-shot drone scout (all-in): check the single nearest candidate,
+    /// then back to mining — the overlord and the lings cover the rest.
+    scout_oneshot: bool,
+    oneshot_picked: bool,
+    /// Set on any enemy_start change: the army re-aims its marchers once.
+    pub retarget_fresh: bool,
 }
 
 impl<'game> Scouting<'game> {
-    pub fn new(cx: Context<'_, 'game>, my_start: TilePosition, hold_drone_until_pool: bool) -> Self {
+    pub fn new(cx: Context<'_, 'game>, my_start: TilePosition, all_in: bool) -> Self {
         let game = cx.game();
         let start_locations = game.start_locations();
         let unscouted = start_locations.iter().copied()
@@ -95,7 +101,10 @@ impl<'game> Scouting<'game> {
             unsafe_starts: HashSet::new(),
             drone_retreating: false,
             overlord_retired: false,
-            hold_drone_until_pool,
+            hold_drone_until_pool: all_in,
+            scout_oneshot: all_in,
+            oneshot_picked: false,
+            retarget_fresh: false,
         }
     }
 
@@ -151,6 +160,7 @@ impl<'game> Scouting<'game> {
         if self.enemy_start.is_none() && self.unscouted.len() == 1 {
             self.enemy_start = self.unscouted.iter().next().copied();
             self.pinned_start = false;
+            self.retarget_fresh = true;
         }
 
         // A guessed start must confirm itself: our standing army in an empty
@@ -240,6 +250,17 @@ impl<'game> Scouting<'game> {
             || self.unsafe_starts.contains(&loc)) {
             self.target = None;
         }
+        // One-shot scout: the first chosen location is the only one — once
+        // it resolves (cleared, occupied or unsafe) the drone goes home to
+        // mine instead of walking the rest of the map.
+        if self.scout_oneshot {
+            if self.target.is_some() {
+                self.oneshot_picked = true;
+            } else if self.oneshot_picked {
+                self.release();
+                return;
+            }
+        }
         if self.target.is_none() {
             self.target = self.nearest_unscouted(scout.position(), self.ovl_target);
             if let Some(target) = self.target {
@@ -319,16 +340,18 @@ impl<'game> Scouting<'game> {
         }
 
         let position = unit.position();
-        // Observing a depot near a start is direct evidence of occupation; a
-        // mobile unit alone isn't. The pin may replace the last-unscouted
-        // guess, which can point at the wrong start.
-        if unit.unit_type().is_resource_depot() && !unit.unit_type().is_flying_building() {
+        // Any non-flying enemy near a start pins it: a worker, army or depot
+        // all mean the enemy lives there — for the rush only the WHERE
+        // matters, and waiting for a depot wastes the turn it takes to spot
+        // one.
+        if !unit.is_flying() {
             let pinned = self.start_locations.iter().copied().find(|&loc| {
                 loc != self.my_start && walk_dist(loc_center(loc), position) < START_RADIUS
             });
             if pinned.is_some() && (pinned != self.enemy_start || !self.pinned_start) {
                 self.enemy_start = pinned;
                 self.pinned_start = true;
+                self.retarget_fresh = true;
             }
         }
 

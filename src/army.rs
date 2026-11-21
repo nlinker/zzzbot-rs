@@ -272,8 +272,9 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         })
         .collect();
     // Hunt mode: the wave stands on its goal with nothing enemy visible
-    // anywhere — roam the remaining bases and mineral clusters and destroy
-    // whatever is found instead of clumping on the ruins.
+    // anywhere — sweep the remaining bases and mineral clusters and destroy
+    // whatever is found. Visited points are logged: without that, the swarm
+    // ping-pongs between the two nearest ones forever.
     if !enemies.is_empty() || !enemy_buildings.is_empty() {
         // something to kill: handled per-unit below
     } else if !wave.is_empty() {
@@ -284,10 +285,23 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         let standing_on_goal = centroid.x.abs_diff(goal.x) < 10 * 32
             && centroid.y.abs_diff(goal.y) < 10 * 32;
         if standing_on_goal {
+            bot.hunt_log.push(goal);
             let mut points = hunt_points(cx, bot);
             points.retain(|&p| {
-                p.x.abs_diff(centroid.x) >= 10 * 32 || p.y.abs_diff(centroid.y) >= 10 * 32
+                (p.x.abs_diff(centroid.x) >= 10 * 32 || p.y.abs_diff(centroid.y) >= 10 * 32)
+                    && !bot
+                        .hunt_log
+                        .iter()
+                        .any(|&v| (v.x - p.x).abs() + (v.y - p.y).abs() < 8 * 32)
             });
+            if points.is_empty() {
+                // Full sweep done and the enemy is still hiding: start over.
+                bot.hunt_log.clear();
+                points = hunt_points(cx, bot);
+                points.retain(|&p| {
+                    p.x.abs_diff(centroid.x) >= 10 * 32 || p.y.abs_diff(centroid.y) >= 10 * 32
+                });
+            }
             if let Some(next) = points
                 .iter()
                 .min_by_key(|&&p| (p.x - centroid.x).abs() + (p.y - centroid.y).abs())
@@ -315,7 +329,10 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     // unscouted start instead of waiting at a staging point for the scouts.
     // Standing there clears the location (our own vision), an empty one
     // sends the survivors to the next candidate via the hunt below.
-    let candidates: Vec<Position> = if target_known {
+    // In hunt mode (no unscouted starts left) the same fan-out spreads the
+    // swarm over unchecked bases and expansions — a column would find one
+    // base at a time, the fan finds them all at once.
+    let mut candidates: Vec<Position> = if target_known {
         Vec::new()
     } else {
         bot.scouting
@@ -324,6 +341,15 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             .map(|&loc| Position::new(loc.x * 32 + 64, loc.y * 32 + 48))
             .collect()
     };
+    if candidates.is_empty() {
+        candidates = hunt_points(cx, bot);
+        candidates.retain(|&p| {
+            !bot
+                .hunt_log
+                .iter()
+                .any(|&v| (v.x - p.x).abs() + (v.y - p.y).abs() < 8 * 32)
+        });
+    }
     for unit in wave {
         if let Some(bld) = nearest_building(unit.position()) {
             unit.attack_unit(bld);
@@ -359,12 +385,36 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         cx,
         &format!("push: {first}wave of {size} attack-move to {},{}{stage}", goal.x / 32, goal.y / 32),
     );
+
+    // Mid-course correction: a fresh enemy pin re-aims the marchers once —
+    // the wave left for the diagonal before the overlord spotted the enemy,
+    // and turns mid-way instead of walking the empty diagonal to the end.
+    if target_known && bot.scouting.retarget_fresh {
+        bot.scouting.retarget_fresh = false;
+        for unit in bot.own_units.iter(cx) {
+            if unit.unit_type() != UnitType::ZERG_MUTALISK
+                && ARMY_TYPES.contains(&unit.unit_type())
+                && unit.exists()
+                && unit.is_completed()
+                && !unit.is_morphing()
+                && !unit.is_attacking()
+                && !unit.is_idle()
+            {
+                unit.attack_position(goal);
+            }
+        }
+        bot.log(cx, "push: fresh pin, marching wave re-aimed");
+    }
 }
 
 /// Roaming destinations for the hunt: the other start locations plus the
 /// mineral clusters (expansion candidates), as cluster centroids.
 fn hunt_points<'game>(cx: Context<'_, 'game>, bot: &ZzzkBot<'game>) -> Vec<Position> {
     let game = cx.game();
+    let home = Position::new(
+        bot.scouting.my_start.x * 32 + 64,
+        bot.scouting.my_start.y * 32 + 48,
+    );
     let mut points: Vec<Position> = bot
         .scouting
         .start_locations
@@ -395,7 +445,11 @@ fn hunt_points<'game>(cx: Context<'_, 'game>, bot: &ZzzkBot<'game>) -> Vec<Posit
         }
         let n = cluster.len() as i32;
         let (sx, sy) = cluster.iter().fold((0, 0), |(ax, ay), p| (ax + p.x, ay + p.y));
-        points.push(Position::new(sx / n, sy / n));
+        let center = Position::new(sx / n, sy / n);
+        // Skip the home cluster: sending the hunt home wastes the sweep.
+        if (center.x - home.x).abs() + (center.y - home.y).abs() > 10 * 32 {
+            points.push(center);
+        }
     }
     points
 }

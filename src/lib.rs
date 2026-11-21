@@ -9,8 +9,8 @@ mod util;
 mod workers;
 
 use bwapi::{
-    Bot, Color, Context, CoordinateType, Game, TextColor, Unit, UnitQuery, UnitSet, UnitType,
-    UpgradeType,
+    Bot, Color, Context, CoordinateType, Game, Position, TextColor, Unit, UnitQuery, UnitSet,
+    UnitType, UpgradeType,
 };
 use build_order::BuildEngine;
 use log::Logger;
@@ -37,6 +37,12 @@ pub struct ZzzkBot<'game> {
     pub trick_extractor: Option<Unit<'game>>,
     /// The army already pushed once; later waves fire at the normal threshold.
     pub pushed: bool,
+    /// Pool4 one-shot: the single extra drone after the pool starts.
+    pub pool4_drone: bool,
+    /// Hunt-mode sweep memory: base/expansion points already checked and
+    /// found empty, so the swarm moves on instead of ping-ponging between
+    /// the two nearest ones.
+    pub hunt_log: Vec<Position>,
     /// Decision-point log, truncated at match start.
     pub logger: Logger,
     /// Unit handles, valid for the whole match.
@@ -168,7 +174,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
             Opener::Pool4 => "4pool",
             Opener::Standard => "standard",
         };
-        let hold_scout = matches!(strategy.opener, Opener::Pool4);
+        let all_in = matches!(strategy.opener, Opener::Pool4);
         game.send_text(&format!("seed {seed:016x}, opener {opener}"));
         let logger = Logger::open();
         logger.line(
@@ -184,13 +190,15 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
             own_units,
             minerals: game.minerals(),
             strategy,
-            scouting: Scouting::new(cx, start, hold_scout),
+            scouting: Scouting::new(cx, start, all_in),
             build: BuildEngine::new(),
             gas_drones: Vec::new(),
             refinery: None,
             trick_builder: None,
             trick_extractor: None,
             pushed: false,
+            pool4_drone: false,
+            hunt_log: Vec::new(),
             logger,
             created: Vec::new(),
             around_base: base.map(|depot| game.units_in_radius(depot.position(), 320)),
