@@ -20,7 +20,7 @@ use strategy::{Opener, Strategy};
 
 const LOCAL_SPEED_START: i32 = 0;
 /// Game speed for the first real fight: the wave meets an enemy unit.
-pub const LOCAL_SPEED_ENGAGE: i32 = 1;
+pub const LOCAL_SPEED_ENGAGE: i32 = 0;
 
 pub struct ZzzkBot<'game> {
     name: String,

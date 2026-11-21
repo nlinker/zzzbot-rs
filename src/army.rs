@@ -418,7 +418,9 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     for unit in wave {
         // Anti-wedge: a unit boxed between mineral patches accepts orders
         // but never moves — detect no-progress over 240 frames and detour
-        // through the map center instead of re-issuing the same dead path.
+        // SIDEWAYS toward the goal. The detour target must never be a fixed
+        // map point: a common detour spot gathers the whole swarm into one
+        // jam and the detector feeds itself.
         let p = unit.position();
         {
             let entry = bot
@@ -429,9 +431,18 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 let moved = (entry.0.x - p.x).abs() + (entry.0.y - p.y).abs();
                 let far_from_goal = (p.x - goal.x).abs() + (p.y - goal.y).abs() > 8 * 32;
                 *entry = (p, frame);
-                if moved < 64 && far_from_goal {
-                    unit.move_to(Position::new(game.map_width() * 16, game.map_height() * 16));
-                    bot.log(cx, &format!("push: ling #{} wedged, detour via center", unit.id()));
+                if moved < 32 && far_from_goal {
+                    let (dx, dy) = (goal.x - p.x, goal.y - p.y);
+                    let len = ((dx * dx + dy * dy) as f32).sqrt().max(1.0);
+                    let side = if unit.id() % 2 == 0 { 1.0 } else { -1.0 };
+                    let detour = Position::new(
+                        (p.x as f32 + dx as f32 / len * 384.0 - dy as f32 / len * side * 192.0)
+                            as i32,
+                        (p.y as f32 + dy as f32 / len * 384.0 + dx as f32 / len * side * 192.0)
+                            as i32,
+                    );
+                    unit.move_to(detour);
+                    bot.log(cx, &format!("push: ling #{} wedged, detouring sideways", unit.id()));
                     continue;
                 }
             }
@@ -552,8 +563,15 @@ fn hunt_points<'game>(cx: Context<'_, 'game>, bot: &ZzzkBot<'game>) -> Vec<Posit
         let n = cluster.len() as i32;
         let (sx, sy) = cluster.iter().fold((0, 0), |(ax, ay), p| (ax + p.x, ay + p.y));
         let center = Position::new(sx / n, sy / n);
-        // Skip the home cluster: sending the hunt home wastes the sweep.
-        if (center.x - home.x).abs() + (center.y - home.y).abs() > 10 * 32 {
+        // A real expansion has a geyser; central map decoration clusters
+        // (minerals only) are not bases — hunting them wedges the swarm in
+        // the middle of the map.
+        let has_geyser = game
+            .geysers()
+            .iter(cx)
+            .any(|g| (g.position().x - center.x).abs() + (g.position().y - center.y).abs() < 15 * 32);
+        let not_home = (center.x - home.x).abs() + (center.y - home.y).abs() > 10 * 32;
+        if has_geyser && not_home {
             points.push(center);
         }
     }
