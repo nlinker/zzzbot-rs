@@ -218,8 +218,9 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             Position::new(sum.0 / n, sum.1 / n)
         }
     };
-    // The wave goal: the enemy start when known, otherwise the staging point.
-    let (goal, target_known) = match bot.scouting.enemy_start {
+    // The wave goal, by priority: the enemy start when known; otherwise the
+    // staging point. Hunt mode (see below) replaces a razed start.
+    let (mut goal, mut target_known) = match bot.scouting.enemy_start {
         Some(loc) => (Position::new(loc.x * 32, loc.y * 32), true),
         None => (staging, false),
     };
@@ -262,12 +263,59 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 && !u.unit_type().is_building()
         })
         .collect();
+    let enemy_buildings: Vec<_> = game
+        .all_units()
+        .iter(cx)
+        .filter(|u| {
+            u.exists() && u.is_visible() && Some(u.player()) == enemy
+                && u.unit_type().is_building()
+        })
+        .collect();
+    // Hunt mode: the start is rubble (the wave stands on it, nothing enemy
+    // visible anywhere) — roam the remaining bases and mineral clusters and
+    // destroy whatever is found instead of clumping on the ruins.
+    if !enemies.is_empty() || !enemy_buildings.is_empty() {
+        // something to kill: handled per-unit below
+    } else if target_known && !wave.is_empty() {
+        let centroid = wave
+            .iter()
+            .fold((0, 0), |(sx, sy), u| (sx + u.position().x, sy + u.position().y));
+        let centroid = Position::new(centroid.0 / wave.len() as i32, centroid.1 / wave.len() as i32);
+        let standing_on_goal = centroid.x.abs_diff(goal.x) < 10 * 32
+            && centroid.y.abs_diff(goal.y) < 10 * 32;
+        if standing_on_goal {
+            let mut points = hunt_points(cx, bot);
+            points.retain(|&p| {
+                p.x.abs_diff(centroid.x) >= 10 * 32 || p.y.abs_diff(centroid.y) >= 10 * 32
+            });
+            if let Some(next) = points
+                .iter()
+                .min_by_key(|&&p| (p.x - centroid.x).abs() + (p.y - centroid.y).abs())
+            {
+                goal = *next;
+                target_known = false; // a hunt move is not the strike
+                bot.log(cx, "push: base razed, hunting expansions");
+            }
+        }
+    }
     // Muta micro owns mutalisk orders: wounded ones would only be re-sent
     // to die by the wave, so they are dispatched here instead.
     let mut wave: Vec<_> = wave;
     wave.retain(|u| u.unit_type() != UnitType::ZERG_MUTALISK);
     let size = wave.len();
+    // Priority: a visible enemy building first — razed bases are won by
+    // killing buildings, units come once they defend.
+    let nearest_building = |pos: Position| {
+        enemy_buildings
+            .iter()
+            .copied()
+            .min_by_key(|&b| (b.position().x - pos.x).abs() + (b.position().y - pos.y).abs())
+    };
     for unit in wave {
+        if let Some(bld) = nearest_building(unit.position()) {
+            unit.attack_unit(bld);
+            continue;
+        }
         let near = enemies
             .iter()
             .copied()
@@ -293,6 +341,45 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         cx,
         &format!("push: {first}wave of {size} attack-move to {},{}{stage}", goal.x / 32, goal.y / 32),
     );
+}
+
+/// Roaming destinations for the hunt: the other start locations plus the
+/// mineral clusters (expansion candidates), as cluster centroids.
+fn hunt_points<'game>(cx: Context<'_, 'game>, bot: &ZzzkBot<'game>) -> Vec<Position> {
+    let game = cx.game();
+    let mut points: Vec<Position> = bot
+        .scouting
+        .start_locations
+        .iter()
+        .filter(|&&loc| loc != bot.scouting.my_start)
+        .map(|&loc| Position::new(loc.x * 32 + 64, loc.y * 32 + 48))
+        .collect();
+    // Greedy clustering of the static mineral patches: every unassigned
+    // patch seeds a cluster that absorbs everything within 12 tiles.
+    let mut patches: Vec<Position> = game
+        .minerals()
+        .iter(cx)
+        .filter(|m| m.exists())
+        .map(|m| m.position())
+        .collect();
+    while let Some(&seed) = patches.first() {
+        let mut cluster = vec![seed];
+        patches.remove(0);
+        let mut i = 0;
+        while i < patches.len() {
+            if cluster.iter().any(|&c| {
+                (c.x - patches[i].x).abs() + (c.y - patches[i].y).abs() < 12 * 32
+            }) {
+                cluster.push(patches.remove(i));
+            } else {
+                i += 1;
+            }
+        }
+        let n = cluster.len() as i32;
+        let (sx, sy) = cluster.iter().fold((0, 0), |(ax, ay), p| (ax + p.x, ay + p.y));
+        points.push(Position::new(sx / n, sy / n));
+    }
+    points
 }
 
 /// Muta micro: wounded mutas (under 30% hp) retreat home to regen, healthy
