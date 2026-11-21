@@ -312,6 +312,13 @@ impl<'game> Scouting<'game> {
         self.scout == Some(unit) || self.overlord == Some(unit)
     }
 
+    /// Start locations the drone and the overlord are walking/flying to
+    /// right now — the lings take a DIFFERENT one (the diagonal), so the
+    /// three candidate bases are covered in parallel.
+    pub fn scout_targets(&self) -> Vec<TilePosition> {
+        [self.target, self.ovl_target].into_iter().flatten().collect()
+    }
+
     /// Called by on_unit_show. Returns race only when learned for the first time.
     pub fn note_enemy_unit(&mut self, unit: Unit<'game>) -> Option<Race> {
         if Some(unit.player()) != self.enemy {

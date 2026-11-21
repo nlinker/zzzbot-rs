@@ -336,21 +336,32 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             .copied()
             .min_by_key(|&b| (b.position().x - pos.x).abs() + (b.position().y - pos.y).abs())
     };
-    // Unknown enemy start: the wave splits — every unit runs to its nearest
-    // unscouted start instead of waiting at a staging point for the scouts.
-    // Standing there clears the location (our own vision), an empty one
-    // sends the survivors to the next candidate via the hunt below.
-    // In hunt mode (no unscouted starts left) the same fan-out spreads the
-    // swarm over unchecked bases and expansions — a column would find one
-    // base at a time, the fan finds them all at once.
+    // Unknown enemy start: the wave runs the DIAGONAL — the candidate start
+    // that neither scout is heading to (drone: nearest, overlord: its own
+    // pick). Duplicating a scout's target wastes the tempo: three bases
+    // must be covered in parallel.
     let mut candidates: Vec<Position> = if target_known {
         Vec::new()
     } else {
-        bot.scouting
+        let taken = bot.scouting.scout_targets();
+        let free: Vec<Position> = bot
+            .scouting
             .unscouted
             .iter()
+            .filter(|&loc| !taken.contains(loc))
             .map(|&loc| Position::new(loc.x * 32 + 64, loc.y * 32 + 48))
-            .collect()
+            .collect();
+        // Every candidate has a scout on it (or none does): no diagonal
+        // left, fall back to all unscouted.
+        if free.is_empty() {
+            bot.scouting
+                .unscouted
+                .iter()
+                .map(|&loc| Position::new(loc.x * 32 + 64, loc.y * 32 + 48))
+                .collect()
+        } else {
+            free
+        }
     };
     if candidates.is_empty() {
         candidates = hunt_points(cx, bot);
