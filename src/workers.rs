@@ -579,7 +579,7 @@ pub fn defend_base<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 impl<'game> ZzzkBot<'game> {
     /// Idle workers mine minerals near completed owned depots; depots train
     /// workers up to the cap — past it, larva and minerals go to the army.
-    pub fn give_orders(&self, cx: Context<'_, 'game>) {
+    pub fn give_orders(&mut self, cx: Context<'_, 'game>) {
         let game = cx.game();
         let counts = crate::util::own_counts(&self.own_units, cx);
         let drones = counts.all.get(&UnitType::ZERG_DRONE).copied().unwrap_or(0);
@@ -664,10 +664,25 @@ impl<'game> ZzzkBot<'game> {
                     unit.right_click_unit(mineral);
                 }
             } else if unit_type.is_resource_depot() && !unit.is_training() {
-                // The all-in needs every larva for lings: drone eggs eat both
-                // the larvae and the supply the first lings need.
-                if drones < DRONE_CAP && self.strategy.order != Some(BuildOrder::Pool4) {
-                    unit.train(unit_type.race().worker());
+                // The all-in needs every larva for lings — with one deliberate
+                // exception: after the pool order is placed, a single extra
+                // drone (50m). Two larvae remain, the hatchery regrows the
+                // third, so pool completion meets three larvae = six lings.
+                let all_in = self.strategy.order == Some(BuildOrder::Pool4);
+                let pool4_drone = all_in
+                    && !self.pool4_drone
+                    && counts.all.get(&UnitType::ZERG_SPAWNING_POOL).copied().unwrap_or(0) > 0
+                    && game.self_player()
+                        .map(|me| me.minerals() >= UnitType::ZERG_DRONE.mineral_price())
+                        .unwrap_or(false);
+                if drones < DRONE_CAP && (!all_in || pool4_drone) {
+                    if all_in {
+                        if unit.train(unit_type.race().worker()) {
+                            self.pool4_drone = true;
+                        }
+                    } else {
+                        unit.train(unit_type.race().worker());
+                    }
                 }
             }
         }
