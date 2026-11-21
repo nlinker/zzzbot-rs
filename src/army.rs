@@ -393,45 +393,36 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             ),
         );
     }
+    // Group threat: one marine shooting one ling must pull the WHOLE pack —
+    // solo re-targeting trades the wave one corpse at a time. Any enemy
+    // ground unit near any wave member becomes the pack's focus (lowest hp
+    // first) until it dies.
+    let group_threat = enemies
+        .iter()
+        .copied()
+        .filter(|&e| wave.iter().any(|u| u.distance_to_unit(e) < 10 * 32))
+        .min_by_key(|&e| e.hit_points());
     for unit in wave {
-        // Melee self-preservation: an enemy unit in weapon range comes
-        // FIRST, before any building — chewing a gate while zealots hit
-        // back just trades the wave for a building.
-        let adjacent = enemies
-            .iter()
-            .copied()
-            .filter(|&e| unit.distance_to_unit(e) < 6 * 32)
-            .min_by_key(|&e| unit.distance_to_unit(e));
-        if let Some(e) = adjacent {
-            let ok = unit.attack_unit(e);
-            if !ok {
-                fails += 1;
-                last_err = game.last_error().name().to_string();
-            }
-            continue;
-        }
-        if let Some(bld) = nearest_building(unit.position()) {
-            let ok = unit.attack_unit(bld);
-            if !ok {
-                fails += 1;
-                last_err = game.last_error().name().to_string();
-            }
-            continue;
-        }
-        let near = enemies
-            .iter()
-            .copied()
-            .filter(|&e| unit.distance_to_unit(e) < OPPORTUNITY_RADIUS)
-            .min_by_key(|&e| unit.distance_to_unit(e));
-        let ok = match near {
-            Some(e) => unit.attack_unit(e),
-            None => {
-                let unit_goal = candidates
-                    .iter()
-                    .min_by_key(|&&p| (p.x - unit.position().x).abs() + (p.y - unit.position().y).abs())
-                    .copied()
-                    .unwrap_or(goal);
-                unit.move_to(unit_goal)
+        let ok = if let Some(threat) = group_threat {
+            unit.attack_unit(threat)
+        } else if let Some(bld) = nearest_building(unit.position()) {
+            unit.attack_unit(bld)
+        } else {
+            let near = enemies
+                .iter()
+                .copied()
+                .filter(|&e| unit.distance_to_unit(e) < OPPORTUNITY_RADIUS)
+                .min_by_key(|&e| unit.distance_to_unit(e));
+            match near {
+                Some(e) => unit.attack_unit(e),
+                None => {
+                    let unit_goal = candidates
+                        .iter()
+                        .min_by_key(|&&p| (p.x - unit.position().x).abs() + (p.y - unit.position().y).abs())
+                        .copied()
+                        .unwrap_or(goal);
+                    unit.move_to(unit_goal)
+                }
             }
         };
         if !ok {
