@@ -47,6 +47,10 @@ pub struct ZzzkBot<'game> {
     /// found empty, so the swarm moves on instead of ping-ponging between
     /// the two nearest ones.
     pub hunt_log: Vec<Position>,
+    /// Anti-wedge tracking: army unit id → (position, frame) of the last
+    /// progress check; a unit that barely moved with live orders gets a
+    /// detour through the map center.
+    pub army_progress: std::collections::HashMap<i32, (Position, i32)>,
     /// Decision-point log, truncated at match start.
     pub logger: Logger,
     /// Unit handles, valid for the whole match.
@@ -204,6 +208,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
             engaged: false,
             pool4_drone: false,
             hunt_log: Vec::new(),
+            army_progress: std::collections::HashMap::new(),
             logger,
             created: Vec::new(),
             around_base: base.map(|depot| game.units_in_radius(depot.position(), 320)),

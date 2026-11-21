@@ -2,7 +2,7 @@
 
 use crate::strategy::BuildOrder;
 use crate::ZzzkBot;
-use bwapi::{Context, Position, Unit, UnitType};
+use bwapi::{Context, Position, UnitType};
 
 /// Army units that take orders from the push layer.
 const ARMY_TYPES: [UnitType; 4] = [
@@ -15,6 +15,15 @@ const ARMY_TYPES: [UnitType; 4] = [
 /// How far from a wave member an enemy unit becomes the direct target of
 /// the wave instead of the march goal (pixels).
 const OPPORTUNITY_RADIUS: i32 = 16 * 32;
+
+/// Defensive structures: they shoot regardless of dodging, so when one is
+/// in reach the wave kills it instead of retreating under its fire.
+const DEFENSE_BUILDINGS: [UnitType; 4] = [
+    UnitType::ZERG_SUNKEN_COLONY,
+    UnitType::ZERG_SPORE_COLONY,
+    UnitType::TERRAN_BUNKER,
+    UnitType::PROTOSS_PHOTON_CANNON,
+];
 
 /// Mutalisk count once the ultra cavern is up: the rest of the gas goes to
 /// ultralisks.
@@ -226,41 +235,10 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         Some(loc) => (Position::new(loc.x * 32 + 64, loc.y * 32 + 48), true),
         None => (staging, false),
     };
-    let wave: Vec<_> = bot
-        .own_units
-        .iter(cx)
-        .filter(|u| {
-            ARMY_TYPES.contains(&u.unit_type())
-                && u.exists()
-                && u.is_completed()
-                && !u.is_morphing()
-                // Standing units, plus units taking hits: a wave chewing a
-                // building while melee units kill it must re-evaluate, or it
-                // dies fixated on the gate.
-                && (u.is_idle() || u.is_under_attack())
-        })
-        .collect();
-    // The all-in rushes with the first six lings and flows continuously; the
-    // standard openers strike first at double strength, later waves at the
-    // normal threshold. Once the all-in is under way every hatchling rides
-    // at once — two survivors at the front need help now, not a fresh six
-    // gathering at home.
-    let all_in = bot.strategy.order == Some(BuildOrder::Pool4);
-    let mult = if all_in || bot.pushed { 1 } else { 2 };
-    let ling_need = if all_in { 6 } else { 16 };
-    let ling_threshold = if all_in && bot.pushed { 1 } else { ling_need * mult };
-    let is_wave = |t: UnitType| wave.iter().filter(|u| u.unit_type() == t).count();
-    let ready = is_wave(UnitType::ZERG_MUTALISK) >= 4 * mult
-        || is_wave(UnitType::ZERG_ULTRALISK) >= 2 * mult
-        || is_wave(UnitType::ZERG_HYDRALISK) >= 8 * mult
-        || is_wave(UnitType::ZERG_ZERGLING) >= ling_threshold;
-    if !ready {
-        return;
-    }
+    // Enemy lists come BEFORE the wave filter: a unit chewing a building
+    // while an outmatched fight walks up must re-evaluate before the first
+    // hit, not after.
     let enemy = bot.scouting.enemy;
-    // Targets of opportunity: a visible enemy unit near a wave member is
-    // attacked directly instead of the march goal — attack-move only
-    // engages along the path, not beside it.
     let enemies: Vec<_> = game
         .all_units()
         .iter(cx)
@@ -282,6 +260,36 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 && !u.is_flying()
         })
         .collect();
+    let wave: Vec<_> = bot
+        .own_units
+        .iter(cx)
+        .filter(|u| {
+            ARMY_TYPES.contains(&u.unit_type())
+                && u.exists()
+                && u.is_completed()
+                && !u.is_morphing()
+                // Standing units plus units taking hits: a wave chewing a
+                // building while melee units kill it must re-evaluate.
+                && (u.is_idle() || u.is_under_attack())
+        })
+        .collect();
+    // The all-in rushes with the first six lings and flows continuously; the
+    // standard openers strike first at double strength, later waves at the
+    // normal threshold. Once the all-in is under way every hatchling rides
+    // at once — two survivors at the front need help now, not a fresh six
+    // gathering at home.
+    let all_in = bot.strategy.order == Some(BuildOrder::Pool4);
+    let mult = if all_in || bot.pushed { 1 } else { 2 };
+    let ling_need = if all_in { 6 } else { 16 };
+    let ling_threshold = if all_in && bot.pushed { 1 } else { ling_need * mult };
+    let is_wave = |t: UnitType| wave.iter().filter(|u| u.unit_type() == t).count();
+    let ready = is_wave(UnitType::ZERG_MUTALISK) >= 4 * mult
+        || is_wave(UnitType::ZERG_ULTRALISK) >= 2 * mult
+        || is_wave(UnitType::ZERG_HYDRALISK) >= 8 * mult
+        || is_wave(UnitType::ZERG_ZERGLING) >= ling_threshold;
+    if !ready {
+        return;
+    }
     // Hunt mode: the wave stands on its goal with nothing enemy visible
     // anywhere — sweep the remaining bases and mineral clusters and destroy
     // whatever is found. Visited points are logged: without that, the swarm
@@ -393,52 +401,53 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             ),
         );
     }
-    // Zealot rule: engage an enemy unit only with local superiority — a
-    // fresh one takes four lings, a bruised one three, a dying one one.
-    // Solo yolo trades the wave one corpse at a time. Without the numbers,
-    // break contact and wait for hatchlings; meanwhile probes and buildings
-    // are always fair game.
-    let required = |e: Unit<'game>| {
-        // Workers are always worth it: a lone ling eats a probe.
-        if e.unit_type().is_worker() {
-            return 1;
-        }
-        let max = e.unit_type().max_hit_points();
-        let hp = e.hit_points();
-        if hp * 3 > max * 2 {
-            4
-        } else if hp * 3 > max {
-            3
-        } else {
-            1
-        }
-    };
-    let nearby_force = |e: Unit<'game>| {
-        wave.iter().filter(|u| u.distance_to_unit(e) < 8 * 32).count()
-    };
+    // Simple pack focus: any enemy ground unit near any wave member becomes
+    // the whole pack's target (weakest first). Every dodge/superiority
+    // variant tried worse than this — the pack just attacks.
     let focus = enemies
         .iter()
         .copied()
-        .filter(|&e| nearby_force(e) >= required(e))
+        .filter(|&e| wave.iter().any(|u| u.distance_to_unit(e) < 10 * 32))
         .min_by_key(|&e| e.hit_points());
-    // First real fight we actually take (not scout contact, not a dodge):
-    // slow the game down to watch it.
+    // First real fight (not scout contact): slow the game down to watch it.
     if focus.is_some() && !bot.engaged {
         bot.engaged = true;
         game.set_local_speed(crate::LOCAL_SPEED_ENGAGE);
         bot.log(cx, "engage: first fight, slowing down");
     }
-    let home = Position::new(
-        bot.scouting.my_start.x * 32 + 64,
-        bot.scouting.my_start.y * 32 + 48,
-    );
     for unit in wave {
+        // Anti-wedge: a unit boxed between mineral patches accepts orders
+        // but never moves — detect no-progress over 240 frames and detour
+        // through the map center instead of re-issuing the same dead path.
+        let p = unit.position();
+        {
+            let entry = bot
+                .army_progress
+                .entry(unit.id())
+                .or_insert((p, frame));
+            if frame - entry.1 >= 240 {
+                let moved = (entry.0.x - p.x).abs() + (entry.0.y - p.y).abs();
+                let far_from_goal = (p.x - goal.x).abs() + (p.y - goal.y).abs() > 8 * 32;
+                *entry = (p, frame);
+                if moved < 64 && far_from_goal {
+                    unit.move_to(Position::new(game.map_width() * 16, game.map_height() * 16));
+                    bot.log(cx, &format!("push: ling #{} wedged, detour via center", unit.id()));
+                    continue;
+                }
+            }
+        }
         let ok = if let Some(threat) = focus {
             unit.attack_unit(threat)
-        } else if enemies.iter().any(|&e| unit.distance_to_unit(e) < 10 * 32) {
-            // Outnumbered locally: disengage toward home; the fresh
-            // hatchlings are on the way and lings outrun zealots.
-            unit.move_to(home)
+        } else if let Some(&defense) = enemy_buildings
+            .iter()
+            .find(|&b| {
+                DEFENSE_BUILDINGS.contains(&b.unit_type())
+                    && unit.distance_to_unit(*b) < 8 * 32
+            })
+        {
+            // A defense building in reach is killed on sight: standing
+            // under a sunken only feeds it corpses.
+            unit.attack_unit(defense)
         } else if let Some(bld) = nearest_building(unit.position()) {
             unit.attack_unit(bld)
         } else {
