@@ -594,6 +594,8 @@ impl<'game> ZzzkBot<'game> {
                 u.exists() && u.is_completed() && u.unit_type().is_resource_depot()
             })
             .collect();
+        // Patches claimed this frame by an idle drone (see the mineral pick).
+        let mut taken: Vec<Unit<'_>> = Vec::new();
         for unit in self.own_units.iter(cx) {
             let unit_type = unit.unit_type();
             if unit_type.is_worker() {
@@ -634,19 +636,31 @@ impl<'game> ZzzkBot<'game> {
                 // Only use minerals near an existing, completed owned depot.
                 // A scout returning from the map must not start mining at an
                 // unoccupied expansion merely because those minerals are closer.
+                // Patches already taken this frame are skipped: every drone
+                // spreads to its own nearest free patch instead of all
+                // piling onto the globally closest one.
+                let near_depot = |mineral: Unit<'game>| {
+                    mineral.exists()
+                        && depots.iter().any(|depot| {
+                            depot.distance_to_unit(mineral) < MINERAL_DEPOT_RADIUS
+                        })
+                };
                 let closest = self
                     .minerals
                     .iter(cx)
-                    .filter(|&mineral| {
-                        mineral.exists()
-                            && depots
-                                .iter()
-                                .any(|depot| {
-                                    depot.distance_to_unit(mineral) < MINERAL_DEPOT_RADIUS
-                                })
-                    })
-                    .min_by_key(|&mineral| unit.distance_to_unit(mineral));
+                    .filter(|&mineral| near_depot(mineral) && !taken.contains(&mineral))
+                    .min_by_key(|&mineral| unit.distance_to_unit(mineral))
+                    // Every patch has a worker: share the nearest one.
+                    .or_else(|| {
+                        self.minerals
+                            .iter(cx)
+                            .filter(|&mineral| near_depot(mineral))
+                            .min_by_key(|&mineral| unit.distance_to_unit(mineral))
+                    });
                 if let Some(mineral) = closest {
+                    if !taken.contains(&mineral) {
+                        taken.push(mineral);
+                    }
                     unit.right_click_unit(mineral);
                 }
             } else if unit_type.is_resource_depot() && !unit.is_training() {
