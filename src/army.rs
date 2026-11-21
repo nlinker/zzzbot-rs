@@ -219,9 +219,11 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         }
     };
     // The wave goal, by priority: the enemy start when known; otherwise the
-    // staging point. Hunt mode (see below) replaces a razed start.
+    // staging point. Hunt mode (see below) replaces a razed start. Start-box
+    // CENTER (+64,+48): the raw tile corner often sits inside the minerals
+    // of the adjacent expansion and the pather refuses it.
     let (mut goal, mut target_known) = match bot.scouting.enemy_start {
-        Some(loc) => (Position::new(loc.x * 32, loc.y * 32), true),
+        Some(loc) => (Position::new(loc.x * 32 + 64, loc.y * 32 + 48), true),
         None => (staging, false),
     };
     let wave: Vec<_> = bot
@@ -239,15 +241,18 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         .collect();
     // The all-in rushes with the first six lings and flows continuously; the
     // standard openers strike first at double strength, later waves at the
-    // normal threshold.
+    // normal threshold. Once the all-in is under way every hatchling rides
+    // at once — two survivors at the front need help now, not a fresh six
+    // gathering at home.
     let all_in = bot.strategy.order == Some(BuildOrder::Pool4);
     let mult = if all_in || bot.pushed { 1 } else { 2 };
     let ling_need = if all_in { 6 } else { 16 };
+    let ling_threshold = if all_in && bot.pushed { 1 } else { ling_need * mult };
     let is_wave = |t: UnitType| wave.iter().filter(|u| u.unit_type() == t).count();
     let ready = is_wave(UnitType::ZERG_MUTALISK) >= 4 * mult
         || is_wave(UnitType::ZERG_ULTRALISK) >= 2 * mult
         || is_wave(UnitType::ZERG_HYDRALISK) >= 8 * mult
-        || is_wave(UnitType::ZERG_ZERGLING) >= ling_need * mult;
+        || is_wave(UnitType::ZERG_ZERGLING) >= ling_threshold;
     if !ready {
         return;
     }
@@ -261,6 +266,10 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         .filter(|u| {
             u.exists() && u.is_visible() && Some(u.player()) == enemy
                 && !u.unit_type().is_building()
+                // Ground only: this is the melee wave's target list, and an
+                // unreachable flyer (an overlord parked over the base) would
+                // both stall the wave and block the hunt.
+                && !u.is_flying()
         })
         .collect();
     let enemy_buildings: Vec<_> = game
@@ -269,6 +278,7 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         .filter(|u| {
             u.exists() && u.is_visible() && Some(u.player()) == enemy
                 && u.unit_type().is_building()
+                && !u.is_flying()
         })
         .collect();
     // Hunt mode: the wave stands on its goal with nothing enemy visible
@@ -350,6 +360,27 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 .any(|&v| (v.x - p.x).abs() + (v.y - p.y).abs() < 8 * 32)
         });
     }
+    let frame = game.frame_count();
+    let mut fails = 0;
+    let mut last_err = String::new();
+    // Position telemetry: where the marching mass actually is — the log
+    // alone cannot tell "marching slowly" from "wedged at home".
+    if frame % 300 == 0 && !wave.is_empty() {
+        let (sx, sy) = wave
+            .iter()
+            .fold((0, 0), |(ax, ay), u| (ax + u.position().x, ay + u.position().y));
+        bot.log(
+            cx,
+            &format!(
+                "wave: {} idle at {},{} (goal {},{})",
+                wave.len(),
+                sx / (32 * wave.len() as i32),
+                sy / (32 * wave.len() as i32),
+                goal.x / 32,
+                goal.y / 32
+            ),
+        );
+    }
     for unit in wave {
         if let Some(bld) = nearest_building(unit.position()) {
             unit.attack_unit(bld);
@@ -360,19 +391,24 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             .copied()
             .filter(|&e| unit.distance_to_unit(e) < OPPORTUNITY_RADIUS)
             .min_by_key(|&e| unit.distance_to_unit(e));
-        match near {
-            Some(e) => {
-                unit.attack_unit(e);
-            }
+        let ok = match near {
+            Some(e) => unit.attack_unit(e),
             None => {
                 let unit_goal = candidates
                     .iter()
                     .min_by_key(|&&p| (p.x - unit.position().x).abs() + (p.y - unit.position().y).abs())
                     .copied()
                     .unwrap_or(goal);
-                unit.attack_position(unit_goal);
+                unit.move_to(unit_goal)
             }
+        };
+        if !ok {
+            fails += 1;
+            last_err = game.last_error().name().to_string();
         }
+    }
+    if fails > 0 && frame % 120 == 0 {
+        bot.log(cx, &format!("push: {fails} attack orders failed: {last_err}"));
     }
     // A staging move is not the strike: keep the double-strength first wave
     // for the moment the enemy start is actually known.
@@ -381,10 +417,14 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     }
     let first = if mult == 2 { "first " } else { "" };
     let stage = if target_known { "" } else { ", staging between unknowns" };
-    bot.log(
-        cx,
-        &format!("push: {first}wave of {size} attack-move to {},{}{stage}", goal.x / 32, goal.y / 32),
-    );
+    // Small reinforcement waves log throttled: at threshold 1 they fire per
+    // hatchling and drown the decision log otherwise.
+    if size >= 4 || game.frame_count() % 60 == 0 {
+        bot.log(
+            cx,
+            &format!("push: {first}wave of {size} attack-move to {},{}{stage}", goal.x / 32, goal.y / 32),
+        );
+    }
 
     // Mid-course correction: a fresh enemy pin re-aims the marchers once —
     // the wave left for the diagonal before the overlord spotted the enemy,
@@ -503,7 +543,7 @@ pub fn muta_micro<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             if let Some(t) = target {
                 m.attack_unit(t);
             } else if let Some(goal) = goal {
-                m.attack_position(Position::new(goal.x * 32, goal.y * 32));
+                m.attack_position(Position::new(goal.x * 32 + 64, goal.y * 32 + 48));
             }
         }
     }
