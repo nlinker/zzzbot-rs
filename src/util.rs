@@ -83,7 +83,7 @@ impl Rng {
     }
 
     /// Weighted pick; weights must not all be zero.
-    pub fn pick<'a, T: Copy>(&mut self, choices: &'a [(T, u32)]) -> T {
+    pub fn pick<T: Copy>(&mut self, choices: &[(T, u32)]) -> T {
         let total: u32 = choices.iter().map(|&(_, w)| w).sum();
         let mut roll = (self.next_u64() % total as u64) as u32;
         for &(item, w) in choices {

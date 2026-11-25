@@ -156,7 +156,7 @@ pub fn extractor_trick<'game>(
     else {
         return;
     };
-    if builder.build(UnitType::ZERG_EXTRACTOR, geyser.tile_position()) {
+    if builder.build(UnitType::ZERG_EXTRACTOR, geyser.tile_position()).is_ok() {
         game.send_text("extractor trick: started");
         bot.log(cx, &format!("extractor trick: started, builder #{}", builder.id()));
         bot.trick_builder = Some(builder);

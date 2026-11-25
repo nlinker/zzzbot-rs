@@ -30,7 +30,7 @@ fn issue_build<'game>(
 ) {
     let game = cx.game();
     let at = format!("{} at {},{}", label, plan.tile.x, plan.tile.y);
-    if plan.builder.build(plan.unit_type, plan.tile) {
+    if plan.builder.build(plan.unit_type, plan.tile).is_ok() {
         bot.log(cx, &format!("{at}: builder #{}", plan.builder.id()));
     } else {
         let error = game.last_error().name();
@@ -183,7 +183,7 @@ fn manage_lair<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         u.exists() && u.is_completed() && !u.is_morphing()
             && u.unit_type() == UnitType::ZERG_HATCHERY
     }) {
-        if hatchery.morph(UnitType::ZERG_LAIR) {
+        if hatchery.morph(UnitType::ZERG_LAIR).is_ok() {
             bot.log(cx, &format!("lair: hatchery #{} morphing", hatchery.id()));
         } else {
             bot.build.mark_fail(UnitType::ZERG_LAIR, game.frame_count());
@@ -258,7 +258,7 @@ fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 u.exists() && u.is_completed() && !u.is_morphing()
                     && u.unit_type() == UnitType::ZERG_LAIR
             }) {
-                if lair.morph(UnitType::ZERG_HIVE) {
+                if lair.morph(UnitType::ZERG_HIVE).is_ok() {
                     bot.log(cx, &format!("hive: lair #{} morphing", lair.id()));
                 } else {
                     bot.build.mark_fail(UnitType::ZERG_HIVE, game.frame_count());
@@ -388,7 +388,7 @@ fn manage_upgrades<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         u.exists() && u.is_completed() && u.is_idle()
             && u.unit_type() == UnitType::ZERG_SPAWNING_POOL
     }) {
-        if pool.upgrade(want) {
+        if pool.upgrade(want).is_ok() {
             bot.log(cx, &format!("upgrade: {} researching", want.name()));
         } else {
             bot.log(cx, &format!("upgrade failed: {}", game.last_error().name()));
@@ -427,7 +427,7 @@ fn manage_sunkens<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> i3
             if have >= want {
                 break;
             }
-            if colony.morph(UnitType::ZERG_SUNKEN_COLONY) {
+            if colony.morph(UnitType::ZERG_SUNKEN_COLONY).is_ok() {
                 have += 1;
                 bot.log(cx, &format!("sunken: colony #{} morphing", colony.id()));
             }
@@ -509,7 +509,7 @@ fn manage_gas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         else {
             break;
         };
-        if worker.gather(refinery) {
+        if worker.gather(refinery).is_ok() {
             bot.log(cx, &format!("gas roster: +drone #{}", worker.id()));
             bot.gas_drones.push(worker);
         } else {
@@ -564,7 +564,7 @@ pub fn defend_base<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         else {
             break;
         };
-        if unit.attack_unit(target) {
+        if unit.attack_unit(target).is_ok() {
             fighting += 1;
             if announced {
                 bot.log(
@@ -610,9 +610,9 @@ impl<'game> ZzzkBot<'game> {
                 // Gas drones cycle between the refinery and the depot.
                 if self.gas_drones.contains(&unit) {
                     if unit.is_carrying_gas() {
-                        unit.return_cargo();
+                        let _ = unit.return_cargo();
                     } else if let Some(refinery) = self.refinery {
-                        if !unit.gather(refinery)
+                        if unit.gather(refinery).is_err()
                             && game.frame_count() % 300 == 0
                         {
                             self.log(
@@ -630,7 +630,7 @@ impl<'game> ZzzkBot<'game> {
                     continue;
                 }
                 if unit.is_carrying_gas() || unit.is_carrying_minerals() {
-                    unit.return_cargo();
+                    let _ = unit.return_cargo();
                     continue;
                 }
                 // Only use minerals near an existing, completed owned depot.
@@ -661,7 +661,7 @@ impl<'game> ZzzkBot<'game> {
                     if !taken.contains(&mineral) {
                         taken.push(mineral);
                     }
-                    unit.right_click_unit(mineral);
+                    let _ = unit.right_click_unit(mineral);
                 }
             } else if unit_type.is_resource_depot() && !unit.is_training() {
                 // The all-in needs every larva for lings — with one deliberate
@@ -677,11 +677,11 @@ impl<'game> ZzzkBot<'game> {
                         .unwrap_or(false);
                 if drones < DRONE_CAP && (!all_in || pool4_drone) {
                     if all_in {
-                        if unit.train(unit_type.race().worker()) {
+                        if unit.train(unit_type.race().worker()).is_ok() {
                             self.pool4_drone = true;
                         }
                     } else {
-                        unit.train(unit_type.race().worker());
+                        let _ = unit.train(unit_type.race().worker());
                     }
                 }
             }

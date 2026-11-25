@@ -70,7 +70,7 @@ pub fn supply_overlords<'game>(
         .iter(cx)
         .find(|u| u.exists() && u.is_idle() && u.unit_type() == UnitType::ZERG_LARVA)
     {
-        if larva.morph(UnitType::ZERG_OVERLORD) {
+        if larva.morph(UnitType::ZERG_OVERLORD).is_ok() {
             bot.log(cx, "supply: overlord morphing");
         } else {
             bot.build.mark_fail(UnitType::ZERG_OVERLORD, game.frame_count());
@@ -109,7 +109,7 @@ pub fn morph_lings<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> u
         {
             break;
         }
-        if larva.morph(UnitType::ZERG_ZERGLING) {
+        if larva.morph(UnitType::ZERG_ZERGLING).is_ok() {
             made += 1;
         }
     }
@@ -151,7 +151,7 @@ pub fn morph_mutas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         {
             break;
         }
-        if larva.morph(UnitType::ZERG_MUTALISK) {
+        if larva.morph(UnitType::ZERG_MUTALISK).is_ok() {
             made += 1;
         } else {
             break;
@@ -191,11 +191,11 @@ pub fn morph_hydras<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     {
         if me.minerals() < UnitType::ZERG_HYDRALISK.mineral_price()
             || me.gas() < UnitType::ZERG_HYDRALISK.gas_price()
-            || hydras + made as i32 >= HYDRA_CAP
+            || hydras + made >= HYDRA_CAP
         {
             break;
         }
-        if larva.morph(UnitType::ZERG_HYDRALISK) {
+        if larva.morph(UnitType::ZERG_HYDRALISK).is_ok() {
             made += 1;
         } else {
             break;
@@ -483,13 +483,13 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                         (p.y as f32 + dy as f32 / len * 384.0 + dx as f32 / len * side * 192.0)
                             as i32,
                     );
-                    unit.move_to(detour);
+                    let _ = unit.move_to(detour);
                     bot.log(cx, &format!("push: ling #{} wedged, detouring sideways", unit.id()));
                     continue;
                 }
             }
         }
-        let ok = if let Some(threat) = focus {
+        let order = if let Some(threat) = focus {
             unit.attack_unit(threat)
         } else if let Some(&defense) = enemy_buildings
             .iter()
@@ -521,7 +521,7 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 }
             }
         };
-        if !ok {
+        if order.is_err() {
             fails += 1;
             last_err = game.last_error().name().to_string();
         }
@@ -559,7 +559,7 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 && !unit.is_attacking()
                 && !unit.is_idle()
             {
-                unit.attack_position(goal);
+                let _ = unit.attack_position(goal);
             }
         }
         bot.log(cx, "push: fresh pin, marching wave re-aimed");
@@ -663,13 +663,13 @@ pub fn muta_micro<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         if hp * 10 < max * 3 {
             // Retreat: home regen heals; idle there means already arrived.
             if m.distance_to_position(home) > 4 * 32 {
-                m.move_to(home);
+                let _ = m.move_to(home);
             }
         } else if hp * 10 > max * 7 && m.is_idle() {
             if let Some(t) = target {
-                m.attack_unit(t);
+                let _ = m.attack_unit(t);
             } else if let Some(goal) = goal {
-                m.attack_position(Position::new(goal.x * 32 + 64, goal.y * 32 + 48));
+                let _ = m.attack_position(Position::new(goal.x * 32 + 64, goal.y * 32 + 48));
             }
         }
     }
@@ -702,7 +702,7 @@ pub fn morph_ultras<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         {
             break;
         }
-        if larva.morph(UnitType::ZERG_ULTRALISK) {
+        if larva.morph(UnitType::ZERG_ULTRALISK).is_ok() {
             made += 1;
         } else {
             break;

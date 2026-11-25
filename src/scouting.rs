@@ -342,11 +342,8 @@ impl<'game> Scouting<'game> {
 
     fn observe_enemy(&mut self, unit: Unit<'game>) {
         if self.enemy_race.is_none() {
-            match unit.unit_type().race() {
-                race @ (Race::ZERG | Race::TERRAN | Race::PROTOSS) => {
-                    self.enemy_race = Some(race);
-                }
-                _ => {}
+            if let race @ (Race::ZERG | Race::TERRAN | Race::PROTOSS) = unit.unit_type().race() {
+                self.enemy_race = Some(race);
             }
         }
 
