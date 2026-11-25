@@ -1,7 +1,7 @@
 # zzzkbot-rs
 
-StarCraft: Brood War bot on [bwapi-rs](../bwapi-rs). Zerg logic inspired by
-[ZZZKBot](https://github.com/bwapi/bwapi/wiki/BWAPI-Bots); the implementation is original.
+StarCraft: Brood War bot on [bwapi-rs](../bwapi-rs). Zerg logic is inspired by Chris Coxe's
+[ZZZKBot](https://github.com/chriscoxe/ZZZKBot); the implementation is original.
 
 Note: it started as a RIIR (Rewrite It In Rust), but the implementation has
 since diverged far from the original.
