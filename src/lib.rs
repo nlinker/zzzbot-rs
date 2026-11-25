@@ -8,15 +8,14 @@ mod strategy;
 mod util;
 mod workers;
 
-use bwapi::{
-    Bot, Color, Context, CoordinateType, Game, Position, TextColor, Unit, UnitQuery, UnitSet,
-    UnitType, UpgradeType,
-};
 use build_order::BuildEngine;
+use bwapi::{
+    Bot, Color, Context, CoordinateType, Game, Position, TextColor, Unit, UnitQuery, UnitSet, UnitType, UpgradeType,
+};
 use log::Logger;
 use scouting::Scouting;
-use workers::macro_orders;
 use strategy::{Opener, Strategy};
+use workers::macro_orders;
 
 const LOCAL_SPEED_START: i32 = 1;
 /// Game speed for the first real fight: the wave meets an enemy unit.
@@ -134,12 +133,7 @@ impl<'game> ZzzkBot<'game> {
             Opener::Pool4 => "4pool",
             Opener::Standard => "standard",
         };
-        game.draw_text(
-            CoordinateType::Screen,
-            10,
-            42,
-            &format!("opener {opener} | BO {order}"),
-        );
+        game.draw_text(CoordinateType::Screen, 10, 42, &format!("opener {opener} | BO {order}"));
     }
 
     /// Marks one unit around the base per frame; the query keeps its position
@@ -251,14 +245,8 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
     fn on_unit_show(&mut self, cx: Context<'_, 'game>, unit: Unit<'game>) {
         if let Some(race) = self.scouting.note_enemy_unit(unit) {
             self.strategy.finalize(race);
-            let order = self
-                .strategy
-                .order
-                .map_or(String::from("?"), |o| o.name().to_string());
-            let tech = self
-                .strategy
-                .order
-                .map_or("", |o| o.tech_line());
+            let order = self.strategy.order.map_or(String::from("?"), |o| o.name().to_string());
+            let tech = self.strategy.order.map_or("", |o| o.tech_line());
             self.logger.line(
                 cx.game().frame_count(),
                 &format!(

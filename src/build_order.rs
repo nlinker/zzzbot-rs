@@ -2,20 +2,16 @@
 
 use std::collections::HashMap;
 
-use crate::strategy::Opener;
-use crate::ZzzkBot;
 use bwapi::{Context, Position, TilePosition, Unit, UnitType};
+
+use crate::{ZzzkBot, strategy::Opener};
 
 /// Frames between retries after a failed placement.
 const RETRY_FRAMES: i32 = 24;
 
 /// Supply freed by a morphing extractor: its drone stops costing supply.
 /// Cancelling the morph refunds the minerals and returns the drone.
-pub fn extractor_trick<'game>(
-    cx: Context<'_, 'game>,
-    bot: &mut ZzzkBot<'game>,
-    free_supply: i32,
-) {
+pub fn extractor_trick<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>, free_supply: i32) {
     let game = cx.game();
     // A ling egg is two zerglings; below that the bot is supply-blocked.
     let egg_supply = UnitType::ZERG_ZERGLING.supply_required() * 2;
@@ -26,12 +22,14 @@ pub fn extractor_trick<'game>(
     // the drone before any egg starts and the trick loops on nothing.
     if let Some(extractor) = bot.trick_extractor {
         if extractor.exists() && extractor.is_morphing() {
-            let egg_underway = bot.own_units.iter(cx).any(|u| {
-                u.exists() && u.unit_type() == UnitType::ZERG_EGG
-            });
-            let larva_left = bot.own_units.iter(cx).any(|u| {
-                u.exists() && u.is_idle() && u.unit_type() == UnitType::ZERG_LARVA
-            });
+            let egg_underway = bot
+                .own_units
+                .iter(cx)
+                .any(|u| u.exists() && u.unit_type() == UnitType::ZERG_EGG);
+            let larva_left = bot
+                .own_units
+                .iter(cx)
+                .any(|u| u.exists() && u.is_idle() && u.unit_type() == UnitType::ZERG_LARVA);
             if !egg_underway && larva_left {
                 return; // keep the drone consumed until the egg starts
             }
@@ -60,10 +58,7 @@ pub fn extractor_trick<'game>(
         bot.trick_builder = None; // dead or the order failed
         bot.log(
             cx,
-            &format!(
-                "extractor trick: order died: {}",
-                game.last_error().name()
-            ),
+            &format!("extractor trick: order died: {}", game.last_error().name()),
         );
         return;
     }
@@ -76,12 +71,14 @@ pub fn extractor_trick<'game>(
     if matches!(bot.strategy.opener, Opener::Pool4) {
         for unit in bot.own_units.iter(cx) {
             if unit.exists() && unit.is_morphing() && unit.unit_type() == UnitType::ZERG_EXTRACTOR {
-                let egg_underway = bot.own_units.iter(cx).any(|u| {
-                    u.exists() && u.unit_type() == UnitType::ZERG_EGG
-                });
-                let larva_left = bot.own_units.iter(cx).any(|u| {
-                    u.exists() && u.is_idle() && u.unit_type() == UnitType::ZERG_LARVA
-                });
+                let egg_underway = bot
+                    .own_units
+                    .iter(cx)
+                    .any(|u| u.exists() && u.unit_type() == UnitType::ZERG_EGG);
+                let larva_left = bot
+                    .own_units
+                    .iter(cx)
+                    .any(|u| u.exists() && u.is_idle() && u.unit_type() == UnitType::ZERG_LARVA);
                 if egg_underway || !larva_left {
                     let _ = unit.cancel_morph();
                     bot.log(cx, "extractor trick: orphan cancelled");
@@ -106,15 +103,15 @@ pub fn extractor_trick<'game>(
     if !matches!(bot.strategy.opener, Opener::Pool4) {
         return;
     }
-    let pool_done = bot.own_units.iter(cx).any(|u| {
-        u.exists() && u.is_completed() && u.unit_type() == UnitType::ZERG_SPAWNING_POOL
-    });
+    let pool_done = bot
+        .own_units
+        .iter(cx)
+        .any(|u| u.exists() && u.is_completed() && u.unit_type() == UnitType::ZERG_SPAWNING_POOL);
     if !pool_done {
         return;
     }
     let me = game.self_player().expect("the bot plays a match, not a replay");
-    let cost = UnitType::ZERG_EXTRACTOR.mineral_price()
-        + UnitType::ZERG_ZERGLING.mineral_price() * 2;
+    let cost = UnitType::ZERG_EXTRACTOR.mineral_price() + UnitType::ZERG_ZERGLING.mineral_price() * 2;
     if me.minerals() < cost {
         return;
     }
@@ -131,29 +128,21 @@ pub fn extractor_trick<'game>(
         .geysers()
         .iter(cx)
         .filter(|&g| g.exists() && g.distance_to_position(home) < 25 * 32)
-        .filter(|&g| {
-            game.can_build_here_with(
-                g.tile_position(),
-                UnitType::ZERG_EXTRACTOR,
-                None,
-                false,
-            )
-        })
+        .filter(|&g| game.can_build_here_with(g.tile_position(), UnitType::ZERG_EXTRACTOR, None, false))
         .min_by_key(|&g| g.distance_to_position(home))
     else {
         return;
     };
-    let Some(builder) = bot
-        .own_units
-        .iter(cx)
-        .find(|u| {
-            u.exists() && u.is_completed() && !u.is_morphing() && !u.is_constructing()
-                && u.unit_type() == UnitType::ZERG_DRONE
-                && !bot.scouting.is_scout(*u)
-                && !bot.build.is_builder(*u)
-                && !bot.gas_drones.contains(u)
-        })
-    else {
+    let Some(builder) = bot.own_units.iter(cx).find(|u| {
+        u.exists()
+            && u.is_completed()
+            && !u.is_morphing()
+            && !u.is_constructing()
+            && u.unit_type() == UnitType::ZERG_DRONE
+            && !bot.scouting.is_scout(*u)
+            && !bot.build.is_builder(*u)
+            && !bot.gas_drones.contains(u)
+    }) else {
         return;
     };
     if builder.build(UnitType::ZERG_EXTRACTOR, geyser.tile_position()).is_ok() {
@@ -241,11 +230,7 @@ impl<'game> BuildEngine<'game> {
 /// Picks a builder and tile when retry allows. The caller builds. The filters
 /// exclude every drone with another job: a geyser stripped of its workers
 /// stalls the gas income for the rest of the match.
-pub fn plan<'game>(
-    cx: Context<'_, 'game>,
-    bot: &mut ZzzkBot<'game>,
-    unit_type: UnitType,
-) -> Option<Plan<'game>> {
+pub fn plan<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>, unit_type: UnitType) -> Option<Plan<'game>> {
     let game = cx.game();
     let me = game.self_player().expect("the bot plays a match, not a replay");
     if me.minerals() < unit_type.mineral_price() || me.gas() < unit_type.gas_price() {
@@ -282,9 +267,7 @@ pub fn plan<'game>(
         game.geysers()
             .iter(cx)
             .filter(|&g| g.exists() && g.distance_to_position(home) < 25 * 32)
-            .filter(|&g| {
-                game.can_build_here_with(g.tile_position(), unit_type, Some(builder), false)
-            })
+            .filter(|&g| game.can_build_here_with(g.tile_position(), unit_type, Some(builder), false))
             .filter(|&g| !bot.build.tiles.values().any(|&t| t == g.tile_position()))
             .min_by_key(|&g| g.distance_to_position(home))
             .map(|g| g.tile_position())
@@ -308,15 +291,14 @@ pub fn plan<'game>(
 
 /// Nearest free drone: not a scout, not morphing, not already building, not
 /// a gas worker, not the trick builder.
-fn pick_builder<'game>(
-    cx: Context<'_, 'game>,
-    bot: &ZzzkBot<'game>,
-    near: Position,
-) -> Option<Unit<'game>> {
+fn pick_builder<'game>(cx: Context<'_, 'game>, bot: &ZzzkBot<'game>, near: Position) -> Option<Unit<'game>> {
     bot.own_units
         .iter(cx)
         .filter(|u| {
-            u.exists() && u.is_completed() && !u.is_morphing() && !u.is_constructing()
+            u.exists()
+                && u.is_completed()
+                && !u.is_morphing()
+                && !u.is_constructing()
                 && u.unit_type() == UnitType::ZERG_DRONE
                 && !bot.scouting.is_scout(*u)
                 && !bot.build.is_builder(*u)

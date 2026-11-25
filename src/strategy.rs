@@ -1,8 +1,9 @@
 //! Strategy: an opener chosen at game start, the final build order once the
 //! enemy race is scouted.
 
-use crate::util::Rng;
 use bwapi::Race;
+
+use crate::util::Rng;
 
 #[derive(Clone, Copy)]
 pub enum Opener {

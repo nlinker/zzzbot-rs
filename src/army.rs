@@ -1,8 +1,8 @@
 //! Larva production and army control.
 
-use crate::strategy::BuildOrder;
-use crate::ZzzkBot;
 use bwapi::{Context, Position, UnitType};
+
+use crate::{ZzzkBot, strategy::BuildOrder};
 
 /// Army units that take orders from the push layer.
 const ARMY_TYPES: [UnitType; 4] = [
@@ -40,11 +40,7 @@ const HYDRA_CAP: i32 = 24;
 
 /// Morphs an overlord when free supply approaches zero: the margin is half
 /// an overlord's capacity, so the morph lands before the block.
-pub fn supply_overlords<'game>(
-    cx: Context<'_, 'game>,
-    bot: &mut ZzzkBot<'game>,
-    counts: &crate::util::OwnCounts,
-) {
+pub fn supply_overlords<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>, counts: &crate::util::OwnCounts) {
     let game = cx.game();
     let me = game.self_player().expect("the bot plays a match, not a replay");
     let free = me.supply_total() - counts.supply_used;
@@ -104,9 +100,7 @@ pub fn morph_lings<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> u
         .iter(cx)
         .filter(|u| u.exists() && u.is_idle() && u.unit_type() == UnitType::ZERG_LARVA)
     {
-        if me.minerals() < UnitType::ZERG_ZERGLING.mineral_price()
-            || lings + made as i32 >= LING_CAP
-        {
+        if me.minerals() < UnitType::ZERG_ZERGLING.mineral_price() || lings + made as i32 >= LING_CAP {
             break;
         }
         if larva.morph(UnitType::ZERG_ZERGLING).is_ok() {
@@ -146,9 +140,7 @@ pub fn morph_mutas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         .iter(cx)
         .filter(|u| u.exists() && u.is_idle() && u.unit_type() == UnitType::ZERG_LARVA)
     {
-        if me.minerals() < UnitType::ZERG_MUTALISK.mineral_price()
-            || me.gas() < UnitType::ZERG_MUTALISK.gas_price()
-        {
+        if me.minerals() < UnitType::ZERG_MUTALISK.mineral_price() || me.gas() < UnitType::ZERG_MUTALISK.gas_price() {
             break;
         }
         if larva.morph(UnitType::ZERG_MUTALISK).is_ok() {
@@ -169,11 +161,7 @@ pub fn morph_hydras<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         return;
     }
     let counts = crate::util::own_counts(&bot.own_units, cx);
-    let dens = counts
-        .all
-        .get(&UnitType::ZERG_HYDRALISK_DEN)
-        .copied()
-        .unwrap_or(0);
+    let dens = counts.all.get(&UnitType::ZERG_HYDRALISK_DEN).copied().unwrap_or(0);
     if dens == 0 {
         return;
     }
@@ -221,9 +209,9 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             Position::new(game.map_width() * 16, game.map_height() * 16)
         } else {
             let n = locs.len() as i32;
-            let sum = locs.iter().fold((0, 0), |(sx, sy), loc| {
-                (sx + loc.x * 32 + 64, sy + loc.y * 32 + 48)
-            });
+            let sum = locs
+                .iter()
+                .fold((0, 0), |(sx, sy), loc| (sx + loc.x * 32 + 64, sy + loc.y * 32 + 48));
             Position::new(sum.0 / n, sum.1 / n)
         }
     };
@@ -260,9 +248,7 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         .all_units()
         .iter(cx)
         .filter(|u| {
-            u.exists() && u.is_visible() && Some(u.player()) == enemy
-                && u.unit_type().is_building()
-                && !u.is_flying()
+            u.exists() && u.is_visible() && Some(u.player()) == enemy && u.unit_type().is_building() && !u.is_flying()
         })
         .collect();
     let wave: Vec<_> = bot
@@ -308,22 +294,12 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             .iter()
             .fold((0, 0), |(sx, sy), u| (sx + u.position().x, sy + u.position().y));
         let centroid = Position::new(centroid.0 / wave.len() as i32, centroid.1 / wave.len() as i32);
-        let standing_on_goal = centroid.x.abs_diff(goal.x) < 10 * 32
-            && centroid.y.abs_diff(goal.y) < 10 * 32;
+        let standing_on_goal = centroid.x.abs_diff(goal.x) < 10 * 32 && centroid.y.abs_diff(goal.y) < 10 * 32;
         if standing_on_goal {
             // Ring sweep around the goal: standing at the center sees only
             // half a base; walking the ring for a fixed dwell reveals all
             // of it before the swarm may call the base empty and leave.
-            const RING: [(i32, i32); 8] = [
-                (6, 0),
-                (-6, 0),
-                (0, 6),
-                (0, -6),
-                (6, 6),
-                (6, -6),
-                (-6, 6),
-                (-6, -6),
-            ];
+            const RING: [(i32, i32); 8] = [(6, 0), (-6, 0), (0, 6), (0, -6), (6, 6), (6, -6), (-6, 6), (-6, -6)];
             let ring: Vec<Position> = RING
                 .iter()
                 .map(|&(dx, dy)| Position::new(goal.x + dx * 32, goal.y + dy * 32))
@@ -350,9 +326,7 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                     // Full sweep done and the enemy is still hiding: start over.
                     bot.hunt_log.clear();
                     points = hunt_points(cx, bot);
-                    points.retain(|&p| {
-                        p.x.abs_diff(centroid.x) >= 10 * 32 || p.y.abs_diff(centroid.y) >= 10 * 32
-                    });
+                    points.retain(|&p| p.x.abs_diff(centroid.x) >= 10 * 32 || p.y.abs_diff(centroid.y) >= 10 * 32);
                 }
                 if let Some(next) = points
                     .iter()
@@ -411,8 +385,7 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     if candidates.is_empty() {
         candidates = hunt_points(cx, bot);
         candidates.retain(|&p| {
-            !bot
-                .hunt_log
+            !bot.hunt_log
                 .iter()
                 .any(|&v| (v.x - p.x).abs() + (v.y - p.y).abs() < 8 * 32)
         });
@@ -465,10 +438,7 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         // jam and the detector feeds itself.
         let p = unit.position();
         {
-            let entry = bot
-                .army_progress
-                .entry(unit.id())
-                .or_insert((p, frame));
+            let entry = bot.army_progress.entry(unit.id()).or_insert((p, frame));
             if frame - entry.1 >= 240 {
                 let moved = (entry.0.x - p.x).abs() + (entry.0.y - p.y).abs();
                 let far_from_goal = (p.x - goal.x).abs() + (p.y - goal.y).abs() > 8 * 32;
@@ -478,10 +448,8 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                     let len = ((dx * dx + dy * dy) as f32).sqrt().max(1.0);
                     let side = if unit.id() % 2 == 0 { 1.0 } else { -1.0 };
                     let detour = Position::new(
-                        (p.x as f32 + dx as f32 / len * 384.0 - dy as f32 / len * side * 192.0)
-                            as i32,
-                        (p.y as f32 + dy as f32 / len * 384.0 + dx as f32 / len * side * 192.0)
-                            as i32,
+                        (p.x as f32 + dx as f32 / len * 384.0 - dy as f32 / len * side * 192.0) as i32,
+                        (p.y as f32 + dy as f32 / len * 384.0 + dx as f32 / len * side * 192.0) as i32,
                     );
                     let _ = unit.move_to(detour);
                     bot.log(cx, &format!("push: ling #{} wedged, detouring sideways", unit.id()));
@@ -493,10 +461,7 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             unit.attack_unit(threat)
         } else if let Some(&defense) = enemy_buildings
             .iter()
-            .find(|&b| {
-                DEFENSE_BUILDINGS.contains(&b.unit_type())
-                    && unit.distance_to_unit(*b) < 8 * 32
-            })
+            .find(|&b| DEFENSE_BUILDINGS.contains(&b.unit_type()) && unit.distance_to_unit(*b) < 8 * 32)
         {
             // A defense building in reach is killed on sight: standing
             // under a sunken only feeds it corpses.
@@ -541,7 +506,11 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     if size >= 4 || game.frame_count() % 60 == 0 {
         bot.log(
             cx,
-            &format!("push: {first}wave of {size} attack-move to {},{}{stage}", goal.x / 32, goal.y / 32),
+            &format!(
+                "push: {first}wave of {size} attack-move to {},{}{stage}",
+                goal.x / 32,
+                goal.y / 32
+            ),
         );
     }
 
@@ -570,10 +539,7 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 /// mineral clusters (expansion candidates), as cluster centroids.
 fn hunt_points<'game>(cx: Context<'_, 'game>, bot: &ZzzkBot<'game>) -> Vec<Position> {
     let game = cx.game();
-    let home = Position::new(
-        bot.scouting.my_start.x * 32 + 64,
-        bot.scouting.my_start.y * 32 + 48,
-    );
+    let home = Position::new(bot.scouting.my_start.x * 32 + 64, bot.scouting.my_start.y * 32 + 48);
     let mut points: Vec<Position> = bot
         .scouting
         .start_locations
@@ -594,9 +560,10 @@ fn hunt_points<'game>(cx: Context<'_, 'game>, bot: &ZzzkBot<'game>) -> Vec<Posit
         patches.remove(0);
         let mut i = 0;
         while i < patches.len() {
-            if cluster.iter().any(|&c| {
-                (c.x - patches[i].x).abs() + (c.y - patches[i].y).abs() < 12 * 32
-            }) {
+            if cluster
+                .iter()
+                .any(|&c| (c.x - patches[i].x).abs() + (c.y - patches[i].y).abs() < 12 * 32)
+            {
                 cluster.push(patches.remove(i));
             } else {
                 i += 1;
@@ -630,18 +597,12 @@ pub fn muta_micro<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     let mutas: Vec<_> = bot
         .own_units
         .iter(cx)
-        .filter(|u| {
-            u.exists() && u.is_completed() && !u.is_morphing()
-                && u.unit_type() == UnitType::ZERG_MUTALISK
-        })
+        .filter(|u| u.exists() && u.is_completed() && !u.is_morphing() && u.unit_type() == UnitType::ZERG_MUTALISK)
         .collect();
     if mutas.is_empty() {
         return;
     }
-    let home = Position::new(
-        bot.scouting.my_start.x * 32,
-        bot.scouting.my_start.y * 32,
-    );
+    let home = Position::new(bot.scouting.my_start.x * 32, bot.scouting.my_start.y * 32);
     // Focus target: the weakest visible enemy unit near any muta. All
     // healthy mutas shoot the same one, so nothing is wasted switching.
     let mut target = None;
@@ -649,10 +610,7 @@ pub fn muta_micro<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         target = game
             .all_units()
             .iter(cx)
-            .filter(|u| {
-                u.exists() && u.is_visible() && u.player() == enemy
-                    && !u.unit_type().is_building()
-            })
+            .filter(|u| u.exists() && u.is_visible() && u.player() == enemy && !u.unit_type().is_building())
             .filter(|&e| mutas.iter().any(|m| m.distance_to_unit(e) < 20 * 32))
             .min_by_key(|&e| e.hit_points());
     }
@@ -697,9 +655,7 @@ pub fn morph_ultras<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         .iter(cx)
         .filter(|u| u.exists() && u.is_idle() && u.unit_type() == UnitType::ZERG_LARVA)
     {
-        if me.minerals() < UnitType::ZERG_ULTRALISK.mineral_price()
-            || me.gas() < UnitType::ZERG_ULTRALISK.gas_price()
-        {
+        if me.minerals() < UnitType::ZERG_ULTRALISK.mineral_price() || me.gas() < UnitType::ZERG_ULTRALISK.gas_price() {
             break;
         }
         if larva.morph(UnitType::ZERG_ULTRALISK).is_ok() {

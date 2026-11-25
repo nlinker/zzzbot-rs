@@ -1,10 +1,8 @@
-﻿//! Worker and depot orders: demo mining until the full gathering discipline.
+//! Worker and depot orders: demo mining until the full gathering discipline.
 
-use crate::army;
-use crate::build_order;
-use crate::strategy::BuildOrder;
-use crate::ZzzkBot;
-use bwapi::{Context, CoordinateType, Position, Unit, UpgradeType, UnitType};
+use bwapi::{Context, CoordinateType, Position, Unit, UnitType, UpgradeType};
+
+use crate::{ZzzkBot, army, build_order, strategy::BuildOrder};
 
 /// Maximum distance from an owned resource depot to a mineral patch (pixels).
 const MINERAL_DEPOT_RADIUS: i32 = 10 * 32;
@@ -22,12 +20,7 @@ const DRONE_CAP: i32 = 40;
 
 /// Issues a planned build and logs the decision either way: builder and tile
 /// on success, the BWAPI error on failure.
-fn issue_build<'game>(
-    cx: Context<'_, 'game>,
-    bot: &mut ZzzkBot<'game>,
-    plan: build_order::Plan<'game>,
-    label: &str,
-) {
+fn issue_build<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>, plan: build_order::Plan<'game>, label: &str) {
     let game = cx.game();
     let at = format!("{} at {},{}", label, plan.tile.x, plan.tile.y);
     if plan.builder.build(plan.unit_type, plan.tile).is_ok() {
@@ -43,8 +36,7 @@ fn issue_build<'game>(
 pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     let game = cx.game();
     let counts = crate::util::own_counts(&bot.own_units, cx);
-    let have_pool =
-        counts.all.get(&UnitType::ZERG_SPAWNING_POOL).copied().unwrap_or(0) > 0;
+    let have_pool = counts.all.get(&UnitType::ZERG_SPAWNING_POOL).copied().unwrap_or(0) > 0;
     if !have_pool {
         // Top of the queue: the pool command applies before anything else
         // spends the same minerals. The rest of the macro below keeps
@@ -84,11 +76,7 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     } else {
         String::new()
     };
-    let hatch_count = counts
-        .all
-        .get(&UnitType::ZERG_HATCHERY)
-        .copied()
-        .unwrap_or(0)
+    let hatch_count = counts.all.get(&UnitType::ZERG_HATCHERY).copied().unwrap_or(0)
         + counts.all.get(&UnitType::ZERG_LAIR).copied().unwrap_or(0)
         + counts.all.get(&UnitType::ZERG_HIVE).copied().unwrap_or(0);
     game.draw_text(
@@ -122,13 +110,8 @@ fn manage_hatcheries<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     let counts = crate::util::own_counts(&bot.own_units, cx);
     // After the pool: its 200 minerals come first, a hatchery at 150 would
     // otherwise steal the budget while the pool builder waits.
-    let have_pool =
-        counts.all.get(&UnitType::ZERG_SPAWNING_POOL).copied().unwrap_or(0) > 0;
-    let bases = counts
-        .all
-        .get(&UnitType::ZERG_HATCHERY)
-        .copied()
-        .unwrap_or(0)
+    let have_pool = counts.all.get(&UnitType::ZERG_SPAWNING_POOL).copied().unwrap_or(0) > 0;
+    let bases = counts.all.get(&UnitType::ZERG_HATCHERY).copied().unwrap_or(0)
         + counts.all.get(&UnitType::ZERG_LAIR).copied().unwrap_or(0)
         + counts.all.get(&UnitType::ZERG_HIVE).copied().unwrap_or(0);
     if bases >= 2 || !have_pool {
@@ -152,20 +135,16 @@ fn manage_lair<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         return;
     }
     let counts = crate::util::own_counts(&bot.own_units, cx);
-    let pool_done =
-        counts.completed.get(&UnitType::ZERG_SPAWNING_POOL).copied().unwrap_or(0) > 0;
-    let gas = counts.completed.get(&UnitType::ZERG_EXTRACTOR).copied().unwrap_or(0) > 0;
-    let tier2 = counts
-        .all
-        .get(&UnitType::ZERG_LAIR)
+    let pool_done = counts
+        .completed
+        .get(&UnitType::ZERG_SPAWNING_POOL)
         .copied()
         .unwrap_or(0)
+        > 0;
+    let gas = counts.completed.get(&UnitType::ZERG_EXTRACTOR).copied().unwrap_or(0) > 0;
+    let tier2 = counts.all.get(&UnitType::ZERG_LAIR).copied().unwrap_or(0)
         + counts.all.get(&UnitType::ZERG_HIVE).copied().unwrap_or(0)
-        + counts
-            .all
-            .get(&UnitType::ZERG_QUEENS_NEST)
-            .copied()
-            .unwrap_or(0);
+        + counts.all.get(&UnitType::ZERG_QUEENS_NEST).copied().unwrap_or(0);
     if !pool_done || !gas || tier2 > 0 {
         return;
     }
@@ -174,15 +153,14 @@ fn manage_lair<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         return;
     }
     let me = game.self_player().expect("the bot plays a match, not a replay");
-    if me.minerals() < UnitType::ZERG_LAIR.mineral_price()
-        || me.gas() < UnitType::ZERG_LAIR.gas_price()
-    {
+    if me.minerals() < UnitType::ZERG_LAIR.mineral_price() || me.gas() < UnitType::ZERG_LAIR.gas_price() {
         return;
     }
-    if let Some(hatchery) = bot.own_units.iter(cx).find(|u| {
-        u.exists() && u.is_completed() && !u.is_morphing()
-            && u.unit_type() == UnitType::ZERG_HATCHERY
-    }) {
+    if let Some(hatchery) = bot
+        .own_units
+        .iter(cx)
+        .find(|u| u.exists() && u.is_completed() && !u.is_morphing() && u.unit_type() == UnitType::ZERG_HATCHERY)
+    {
         if hatchery.morph(UnitType::ZERG_LAIR).is_ok() {
             bot.log(cx, &format!("lair: hatchery #{} morphing", hatchery.id()));
         } else {
@@ -210,16 +188,8 @@ fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     let game = cx.game();
     let counts = crate::util::own_counts(&bot.own_units, cx);
     let lair_done = counts.completed.get(&UnitType::ZERG_LAIR).copied().unwrap_or(0) > 0;
-    let dens = counts
-        .all
-        .get(&UnitType::ZERG_HYDRALISK_DEN)
-        .copied()
-        .unwrap_or(0);
-    let nests = counts
-        .all
-        .get(&UnitType::ZERG_QUEENS_NEST)
-        .copied()
-        .unwrap_or(0);
+    let dens = counts.all.get(&UnitType::ZERG_HYDRALISK_DEN).copied().unwrap_or(0);
+    let nests = counts.all.get(&UnitType::ZERG_QUEENS_NEST).copied().unwrap_or(0);
     let hives = counts.all.get(&UnitType::ZERG_HIVE).copied().unwrap_or(0);
 
     // The nest is a drone building (whatBuilds = Drone, Lair is a
@@ -233,31 +203,22 @@ fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         return;
     }
     if nests > 0 && hives == 0 {
-        let nest_done =
-            counts.completed.get(&UnitType::ZERG_QUEENS_NEST).copied().unwrap_or(0) > 0;
+        let nest_done = counts.completed.get(&UnitType::ZERG_QUEENS_NEST).copied().unwrap_or(0) > 0;
         if nest_done && bot.build.can_retry(UnitType::ZERG_HIVE, game.frame_count()) {
             let me = game.self_player().expect("the bot plays a match, not a replay");
-            if me.minerals() < UnitType::ZERG_HIVE.mineral_price()
-                || me.gas() < UnitType::ZERG_HIVE.gas_price()
-            {
+            if me.minerals() < UnitType::ZERG_HIVE.mineral_price() || me.gas() < UnitType::ZERG_HIVE.gas_price() {
                 if game.frame_count() % 300 == 0 {
-                    bot.log(
-                        cx,
-                        &format!(
-                            "hive blocked: m {}, g {}",
-                            me.minerals(),
-                            me.gas()
-                        ),
-                    );
+                    bot.log(cx, &format!("hive blocked: m {}, g {}", me.minerals(), me.gas()));
                 }
                 return;
             }
             // whatBuilds of the hive is the lair; the nest is only a
             // prerequisite, morphing it fails with Incompatible_UnitType.
-            if let Some(lair) = bot.own_units.iter(cx).find(|u| {
-                u.exists() && u.is_completed() && !u.is_morphing()
-                    && u.unit_type() == UnitType::ZERG_LAIR
-            }) {
+            if let Some(lair) = bot
+                .own_units
+                .iter(cx)
+                .find(|u| u.exists() && u.is_completed() && !u.is_morphing() && u.unit_type() == UnitType::ZERG_LAIR)
+            {
                 if lair.morph(UnitType::ZERG_HIVE).is_ok() {
                     bot.log(cx, &format!("hive: lair #{} morphing", lair.id()));
                 } else {
@@ -308,11 +269,7 @@ fn manage_den<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     }
     let counts = crate::util::own_counts(&bot.own_units, cx);
     let lair_done = counts.completed.get(&UnitType::ZERG_LAIR).copied().unwrap_or(0) > 0;
-    let dens = counts
-        .all
-        .get(&UnitType::ZERG_HYDRALISK_DEN)
-        .copied()
-        .unwrap_or(0);
+    let dens = counts.all.get(&UnitType::ZERG_HYDRALISK_DEN).copied().unwrap_or(0);
     if !lair_done || dens > 0 {
         return;
     }
@@ -330,11 +287,7 @@ fn manage_cavern<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     }
     let counts = crate::util::own_counts(&bot.own_units, cx);
     let hive_done = counts.completed.get(&UnitType::ZERG_HIVE).copied().unwrap_or(0) > 0;
-    let caverns = counts
-        .all
-        .get(&UnitType::ZERG_ULTRALISK_CAVERN)
-        .copied()
-        .unwrap_or(0);
+    let caverns = counts.all.get(&UnitType::ZERG_ULTRALISK_CAVERN).copied().unwrap_or(0);
     if !hive_done || caverns > 0 {
         return;
     }
@@ -374,20 +327,16 @@ fn manage_upgrades<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         if game.frame_count() % 600 == 0 {
             bot.log(
                 cx,
-                &format!(
-                    "upgrade {} blocked: m {}, g {}",
-                    want.name(),
-                    me.minerals(),
-                    me.gas()
-                ),
+                &format!("upgrade {} blocked: m {}, g {}", want.name(), me.minerals(), me.gas()),
             );
         }
         return;
     }
-    if let Some(pool) = bot.own_units.iter(cx).find(|u| {
-        u.exists() && u.is_completed() && u.is_idle()
-            && u.unit_type() == UnitType::ZERG_SPAWNING_POOL
-    }) {
+    if let Some(pool) = bot
+        .own_units
+        .iter(cx)
+        .find(|u| u.exists() && u.is_completed() && u.is_idle() && u.unit_type() == UnitType::ZERG_SPAWNING_POOL)
+    {
         if pool.upgrade(want).is_ok() {
             bot.log(cx, &format!("upgrade: {} researching", want.name()));
         } else {
@@ -398,7 +347,8 @@ fn manage_upgrades<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 
 /// Base defense: creep colonies up to the strategy's sunken count, finished
 /// ones morphed into sunken colonies. Returns that count, colonies included.
-fn manage_sunkens<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> i32 {    let want = bot.strategy.num_sunkens;
+fn manage_sunkens<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> i32 {
+    let want = bot.strategy.num_sunkens;
 
     let mut have: i32 = 0;
     let mut idle_colonies: Vec<_> = Vec::new();
@@ -420,8 +370,12 @@ fn manage_sunkens<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> i3
 
     // The morph needs a finished pool; colonies just need creep.
     let counts = crate::util::own_counts(&bot.own_units, cx);
-    let pool_done =
-        counts.completed.get(&UnitType::ZERG_SPAWNING_POOL).copied().unwrap_or(0) > 0;
+    let pool_done = counts
+        .completed
+        .get(&UnitType::ZERG_SPAWNING_POOL)
+        .copied()
+        .unwrap_or(0)
+        > 0;
     if pool_done {
         for colony in idle_colonies {
             if have >= want {
@@ -476,8 +430,7 @@ fn manage_gas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     let refineries = counts.all.get(&UnitType::ZERG_EXTRACTOR).copied().unwrap_or(0);
     // After the pool, like the hatchery: the extractor must not eat the
     // pool's 200 minerals.
-    let have_pool =
-        counts.all.get(&UnitType::ZERG_SPAWNING_POOL).copied().unwrap_or(0) > 0;
+    let have_pool = counts.all.get(&UnitType::ZERG_SPAWNING_POOL).copied().unwrap_or(0) > 0;
     if !all_in && have_pool && refineries == 0 {
         let extractor = UnitType::ZERG_EXTRACTOR;
         if let Some(plan) = build_order::plan(cx, bot, extractor) {
@@ -499,7 +452,9 @@ fn manage_gas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
             .own_units
             .iter(cx)
             .filter(|u| {
-                u.exists() && u.is_completed() && !u.is_morphing()
+                u.exists()
+                    && u.is_completed()
+                    && !u.is_morphing()
                     && u.unit_type() == UnitType::ZERG_DRONE
                     && !bot.scouting.is_scout(*u)
                     && !bot.build.is_builder(*u)
@@ -529,10 +484,7 @@ pub fn defend_base<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     let home = Position::new(base.x * 32, base.y * 32);
     let raiders: Vec<_> = game
         .units_in_radius(home, RAID_RADIUS)
-        .filter(|u| {
-            u.exists() && u.player() == enemy && !u.is_flying()
-                && u.unit_type() != UnitType::ZERG_OVERLORD
-        })
+        .filter(|u| u.exists() && u.player() == enemy && !u.is_flying() && u.unit_type() != UnitType::ZERG_OVERLORD)
         .collect();
     if raiders.is_empty() {
         return;
@@ -557,20 +509,13 @@ pub fn defend_base<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         {
             continue;
         }
-        let Some(target) = raiders
-            .iter()
-            .copied()
-            .min_by_key(|&r| unit.distance_to_unit(r))
-        else {
+        let Some(target) = raiders.iter().copied().min_by_key(|&r| unit.distance_to_unit(r)) else {
             break;
         };
         if unit.attack_unit(target).is_ok() {
             fighting += 1;
             if announced {
-                bot.log(
-                    cx,
-                    &format!("defend: drone #{} attacks #{}", unit.id(), target.id()),
-                );
+                bot.log(cx, &format!("defend: drone #{} attacks #{}", unit.id(), target.id()));
             }
         }
     }
@@ -590,9 +535,7 @@ impl<'game> ZzzkBot<'game> {
         let depots: Vec<Unit<'_>> = self
             .own_units
             .iter(cx)
-            .filter(|u| {
-                u.exists() && u.is_completed() && u.unit_type().is_resource_depot()
-            })
+            .filter(|u| u.exists() && u.is_completed() && u.unit_type().is_resource_depot())
             .collect();
         // Patches claimed this frame by an idle drone (see the mineral pick).
         let mut taken: Vec<Unit<'_>> = Vec::new();
@@ -612,16 +555,10 @@ impl<'game> ZzzkBot<'game> {
                     if unit.is_carrying_gas() {
                         let _ = unit.return_cargo();
                     } else if let Some(refinery) = self.refinery {
-                        if unit.gather(refinery).is_err()
-                            && game.frame_count() % 300 == 0
-                        {
+                        if unit.gather(refinery).is_err() && game.frame_count() % 300 == 0 {
                             self.log(
                                 cx,
-                                &format!(
-                                    "gas: drone #{} gather failed: {}",
-                                    unit.id(),
-                                    game.last_error().name()
-                                ),
+                                &format!("gas: drone #{} gather failed: {}", unit.id(), game.last_error().name()),
                             );
                         }
                     } else if game.frame_count() % 300 == 0 {
@@ -641,9 +578,9 @@ impl<'game> ZzzkBot<'game> {
                 // piling onto the globally closest one.
                 let near_depot = |mineral: Unit<'game>| {
                     mineral.exists()
-                        && depots.iter().any(|depot| {
-                            depot.distance_to_unit(mineral) < MINERAL_DEPOT_RADIUS
-                        })
+                        && depots
+                            .iter()
+                            .any(|depot| depot.distance_to_unit(mineral) < MINERAL_DEPOT_RADIUS)
                 };
                 let closest = self
                     .minerals
@@ -672,7 +609,8 @@ impl<'game> ZzzkBot<'game> {
                 let pool4_drone = all_in
                     && !self.pool4_drone
                     && counts.all.get(&UnitType::ZERG_SPAWNING_POOL).copied().unwrap_or(0) > 0
-                    && game.self_player()
+                    && game
+                        .self_player()
                         .map(|me| me.minerals() >= UnitType::ZERG_DRONE.mineral_price())
                         .unwrap_or(false);
                 if drones < DRONE_CAP && (!all_in || pool4_drone) {

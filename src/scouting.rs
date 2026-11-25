@@ -3,8 +3,8 @@
 use std::collections::HashSet;
 
 use bwapi::{
-    Color, Context, CoordinateType, Player, Position, Race, TextColor, TilePosition, Unit,
-    UnitSet, UnitType, WeaponType,
+    Color, Context, CoordinateType, Player, Position, Race, TextColor, TilePosition, Unit, UnitSet, UnitType,
+    WeaponType,
 };
 
 const MIN_DRONES: i32 = 4;
@@ -84,8 +84,7 @@ impl<'game> Scouting<'game> {
     pub fn new(cx: Context<'_, 'game>, my_start: TilePosition, all_in: bool) -> Self {
         let game = cx.game();
         let start_locations = game.start_locations();
-        let unscouted = start_locations.iter().copied()
-            .filter(|&loc| loc != my_start).collect();
+        let unscouted = start_locations.iter().copied().filter(|&loc| loc != my_start).collect();
         let enemy = game.enemies().iter(cx).next();
         Self {
             start_locations,
@@ -118,8 +117,7 @@ impl<'game> Scouting<'game> {
         // Only a pinned start (or nothing left to check) retires the scouts:
         // a deduction often points at the wrong start, and then the army
         // would march there forever while the enemy builds elsewhere.
-        if self.enemy_race.is_some()
-            && (self.pinned_start || (self.enemy_start.is_some() && self.unscouted.is_empty()))
+        if self.enemy_race.is_some() && (self.pinned_start || (self.enemy_start.is_some() && self.unscouted.is_empty()))
         {
             self.release();
             self.park_overlord();
@@ -132,9 +130,7 @@ impl<'game> Scouting<'game> {
         if let Some(enemy) = self.enemy {
             for unit in cx.game().all_units().iter(cx) {
                 if unit.exists() && unit.is_visible() && unit.player() == enemy {
-                    if unit.unit_type().is_resource_depot()
-                        && !unit.unit_type().is_flying_building()
-                    {
+                    if unit.unit_type().is_resource_depot() && !unit.unit_type().is_flying_building() {
                         enemy_depots.push(unit.position());
                     }
                     self.observe_enemy(unit);
@@ -146,15 +142,13 @@ impl<'game> Scouting<'game> {
         // observed: merely moving within four tiles is not proof of an empty
         // start, and tiles visible under an enemy depot mean occupied.
         for &loc in &self.start_locations {
-            if loc == self.my_start || self.unsafe_starts.contains(&loc)
-                || self.scouted.contains(&loc)
-            {
+            if loc == self.my_start || self.unsafe_starts.contains(&loc) || self.scouted.contains(&loc) {
                 continue;
             }
-            let fully_visible = (0..4).all(|dx| (0..3).all(|dy| {
-                cx.game().is_visible(TilePosition::new(loc.x + dx, loc.y + dy))
-            }));
-            let occupied = enemy_depots.iter()
+            let fully_visible =
+                (0..4).all(|dx| (0..3).all(|dy| cx.game().is_visible(TilePosition::new(loc.x + dx, loc.y + dy))));
+            let occupied = enemy_depots
+                .iter()
                 .any(|&pos| walk_dist(loc_center(loc), pos) < START_RADIUS);
             if fully_visible && !occupied && self.unscouted.remove(&loc) {
                 self.scouted.insert(loc);
@@ -180,7 +174,8 @@ impl<'game> Scouting<'game> {
                         && u.distance_to_position(center) < VERIFY_RADIUS
                 });
                 let enemy_near = self.enemy.is_some_and(|enemy| {
-                    cx.game().units_in_radius(center, VERIFY_RADIUS)
+                    cx.game()
+                        .units_in_radius(center, VERIFY_RADIUS)
                         .any(|u| u.exists() && u.player() == enemy)
                 });
                 if army_near && !enemy_near {
@@ -195,9 +190,9 @@ impl<'game> Scouting<'game> {
 
         // All-in: hold the drone scout until the pool is placed — mining
         // reaches 200 faster with four drones; the overlord covers the sky.
-        let pool_exists = own.iter(cx).any(|u| {
-            u.exists() && u.unit_type() == UnitType::ZERG_SPAWNING_POOL
-        });
+        let pool_exists = own
+            .iter(cx)
+            .any(|u| u.exists() && u.unit_type() == UnitType::ZERG_SPAWNING_POOL);
         if !self.hold_drone_until_pool || pool_exists {
             self.update_drone(cx, own);
         }
@@ -218,10 +213,10 @@ impl<'game> Scouting<'game> {
             }
         }
 
-        let drone_count = own.iter(cx).filter(|u| {
-            u.exists() && u.is_completed() && !u.is_morphing()
-                && u.unit_type() == UnitType::ZERG_DRONE
-        }).count() as i32;
+        let drone_count = own
+            .iter(cx)
+            .filter(|u| u.exists() && u.is_completed() && !u.is_morphing() && u.unit_type() == UnitType::ZERG_DRONE)
+            .count() as i32;
         if drone_count < MIN_DRONES {
             self.release();
             return;
@@ -233,9 +228,9 @@ impl<'game> Scouting<'game> {
                 return;
             }
             let base = loc_center(self.my_start);
-            self.scout = own.iter(cx)
-                .filter(|u| u.exists() && u.is_completed() && !u.is_morphing()
-                    && u.unit_type() == UnitType::ZERG_DRONE)
+            self.scout = own
+                .iter(cx)
+                .filter(|u| u.exists() && u.is_completed() && !u.is_morphing() && u.unit_type() == UnitType::ZERG_DRONE)
                 .min_by_key(|u| u.distance_to_position(base));
         }
         let Some(scout) = self.scout else { return };
@@ -250,8 +245,10 @@ impl<'game> Scouting<'game> {
             self.drone_retreating = false;
         }
 
-        if self.target.is_some_and(|loc| !self.unscouted.contains(&loc)
-            || self.unsafe_starts.contains(&loc)) {
+        if self
+            .target
+            .is_some_and(|loc| !self.unscouted.contains(&loc) || self.unsafe_starts.contains(&loc))
+        {
             self.target = None;
         }
         // One-shot scout: the first chosen location is the only one — once
@@ -290,9 +287,9 @@ impl<'game> Scouting<'game> {
             self.ovl_target = None;
         }
         if self.overlord.is_none() {
-            self.overlord = own.iter(cx).find(|u| {
-                u.exists() && u.is_completed() && u.unit_type() == UnitType::ZERG_OVERLORD
-            });
+            self.overlord = own
+                .iter(cx)
+                .find(|u| u.exists() && u.is_completed() && u.unit_type() == UnitType::ZERG_OVERLORD);
         }
         let Some(overlord) = self.overlord else { return };
         if self.ovl_target.is_some_and(|loc| !self.unscouted.contains(&loc)) {
@@ -329,8 +326,7 @@ impl<'game> Scouting<'game> {
             return None;
         }
         let first_race = match unit.unit_type().race() {
-            race @ (Race::ZERG | Race::TERRAN | Race::PROTOSS)
-                if self.enemy_race.is_none() => {
+            race @ (Race::ZERG | Race::TERRAN | Race::PROTOSS) if self.enemy_race.is_none() => {
                 self.enemy_race = Some(race);
                 Some(race)
             }
@@ -359,9 +355,11 @@ impl<'game> Scouting<'game> {
                 // corner while the real base sits a screen away.
                 self.seen_building = Some(position);
             }
-            let pinned = self.start_locations.iter().copied().find(|&loc| {
-                loc != self.my_start && walk_dist(loc_center(loc), position) < START_RADIUS
-            });
+            let pinned = self
+                .start_locations
+                .iter()
+                .copied()
+                .find(|&loc| loc != self.my_start && walk_dist(loc_center(loc), position) < START_RADIUS);
             if pinned.is_some() && (pinned != self.enemy_start || !self.pinned_start) {
                 self.enemy_start = pinned;
                 self.pinned_start = true;
@@ -369,16 +367,17 @@ impl<'game> Scouting<'game> {
             }
         }
 
-        if self.overlord.is_some_and(|ovl| ovl.exists()
-            && walk_dist(ovl.position(), position) < DANGER_RADIUS) {
+        if self
+            .overlord
+            .is_some_and(|ovl| ovl.exists() && walk_dist(ovl.position(), position) < DANGER_RADIUS)
+        {
             // Any enemy contact ends overlord scouting, including non-AA units.
             self.park_overlord();
             self.overlord_retired = true;
         }
 
         if let Some(drone) = self.scout {
-            if drone.exists() && threatens(unit, false)
-                && walk_dist(drone.position(), position) < DANGER_RADIUS {
+            if drone.exists() && threatens(unit, false) && walk_dist(drone.position(), position) < DANGER_RADIUS {
                 // Do not cross a suspected defended start again.
                 if let Some(target) = self.target {
                     self.unsafe_starts.insert(target);
@@ -393,7 +392,9 @@ impl<'game> Scouting<'game> {
     }
 
     fn nearest_unscouted(&self, from: Position, exclude: Option<TilePosition>) -> Option<TilePosition> {
-        self.unscouted.iter().copied()
+        self.unscouted
+            .iter()
+            .copied()
             .filter(|loc| Some(*loc) != exclude && !self.unsafe_starts.contains(loc))
             .min_by_key(|&loc| walk_dist(loc_center(loc), from))
     }
@@ -443,10 +444,14 @@ impl<'game> Scouting<'game> {
             game.draw_text_map(left_top, label);
         }
         if let Some(scout) = self.scout {
-            if scout.exists() { game.draw_circle_map(scout.position(), 24, Color::ORANGE); }
+            if scout.exists() {
+                game.draw_circle_map(scout.position(), 24, Color::ORANGE);
+            }
         }
         if let Some(overlord) = self.overlord {
-            if overlord.exists() { game.draw_circle_map(overlord.position(), 24, Color::BLUE); }
+            if overlord.exists() {
+                game.draw_circle_map(overlord.position(), 24, Color::BLUE);
+            }
         }
         let enemy = match self.enemy {
             Some(enemy) => {
@@ -464,8 +469,11 @@ impl<'game> Scouting<'game> {
         };
         let line = format!(
             "{}Starts {}, not scouted {}, enemy {}{}",
-            TextColor::Green, self.start_locations.len(), self.unscouted.len(),
-            enemy, TextColor::Default,
+            TextColor::Green,
+            self.start_locations.len(),
+            self.unscouted.len(),
+            enemy,
+            TextColor::Default,
         );
         game.draw_text(CoordinateType::Screen, 10, 58, &line);
     }

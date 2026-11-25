@@ -1,8 +1,6 @@
 //! Match log: one line per decision point, truncated at match start.
 
-use std::cell::RefCell;
-use std::fs::File;
-use std::io::Write;
+use std::{cell::RefCell, fs::File, io::Write};
 
 /// Append-only text log beside the game executable's working directory.
 /// Decision points only (a build issued or failed, a race scouted), so the
