@@ -55,11 +55,14 @@ pub fn extractor_trick<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>, 
         if builder.exists() && (builder.build_type() == UnitType::ZERG_EXTRACTOR || !builder.is_idle()) {
             return;
         }
-        bot.trick_builder = None; // dead or the order failed
-        bot.log(
-            cx,
-            &format!("extractor trick: order died: {}", game.last_error().name()),
-        );
+        // The order was accepted in an earlier frame: BWAPI has no error for it now.
+        let why = if builder.exists() {
+            "builder idle without morphing"
+        } else {
+            "builder lost"
+        };
+        bot.trick_builder = None;
+        bot.log(cx, &format!("extractor trick: order died: {why}"));
         return;
     }
 
@@ -145,10 +148,13 @@ pub fn extractor_trick<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>, 
     }) else {
         return;
     };
-    if builder.build(UnitType::ZERG_EXTRACTOR, geyser.tile_position()).is_ok() {
-        game.send_text("extractor trick: started");
-        bot.log(cx, &format!("extractor trick: started, builder #{}", builder.id()));
-        bot.trick_builder = Some(builder);
+    match builder.build(UnitType::ZERG_EXTRACTOR, geyser.tile_position()) {
+        Ok(()) => {
+            game.send_text("extractor trick: started");
+            bot.log(cx, &format!("extractor trick: started, builder #{}", builder.id()));
+            bot.trick_builder = Some(builder);
+        }
+        Err(error) => bot.log(cx, &format!("extractor trick: order failed: {error}")),
     }
 }
 
