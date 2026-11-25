@@ -66,11 +66,12 @@ pub fn supply_overlords<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>,
         .iter(cx)
         .find(|u| u.exists() && u.is_idle() && u.unit_type() == UnitType::ZERG_LARVA)
     {
-        if larva.morph(UnitType::ZERG_OVERLORD).is_ok() {
-            bot.log(cx, "supply: overlord morphing");
-        } else {
-            bot.build.mark_fail(UnitType::ZERG_OVERLORD, game.frame_count());
-            bot.log(cx, &format!("overlord morph failed: {}", game.last_error().name()));
+        match larva.morph(UnitType::ZERG_OVERLORD) {
+            Ok(()) => bot.log(cx, "supply: overlord morphing"),
+            Err(error) => {
+                bot.build.mark_fail(UnitType::ZERG_OVERLORD, game.frame_count());
+                bot.log(cx, &format!("overlord morph failed: {error}"));
+            }
         }
     }
 }
@@ -486,9 +487,9 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 }
             }
         };
-        if order.is_err() {
+        if let Err(error) = order {
             fails += 1;
-            last_err = game.last_error().name().to_string();
+            last_err = error.to_string();
         }
     }
     if fails > 0 && frame % 120 == 0 {

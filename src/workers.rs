@@ -23,12 +23,12 @@ const DRONE_CAP: i32 = 40;
 fn issue_build<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>, plan: build_order::Plan<'game>, label: &str) {
     let game = cx.game();
     let at = format!("{} at {},{}", label, plan.tile.x, plan.tile.y);
-    if plan.builder.build(plan.unit_type, plan.tile).is_ok() {
-        bot.log(cx, &format!("{at}: builder #{}", plan.builder.id()));
-    } else {
-        let error = game.last_error().name();
-        bot.build.mark_fail(plan.unit_type, game.frame_count());
-        bot.log(cx, &format!("{at}: failed: {error}"));
+    match plan.builder.build(plan.unit_type, plan.tile) {
+        Ok(()) => bot.log(cx, &format!("{at}: builder #{}", plan.builder.id())),
+        Err(error) => {
+            bot.build.mark_fail(plan.unit_type, game.frame_count());
+            bot.log(cx, &format!("{at}: failed: {error}"));
+        }
     }
 }
 
@@ -161,12 +161,13 @@ fn manage_lair<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         .iter(cx)
         .find(|u| u.exists() && u.is_completed() && !u.is_morphing() && u.unit_type() == UnitType::ZERG_HATCHERY)
     {
-        if hatchery.morph(UnitType::ZERG_LAIR).is_ok() {
-            bot.log(cx, &format!("lair: hatchery #{} morphing", hatchery.id()));
-        } else {
-            bot.build.mark_fail(UnitType::ZERG_LAIR, game.frame_count());
-            game.send_text(&format!("lair morph failed: {}", game.last_error().name()));
-            bot.log(cx, &format!("lair morph failed: {}", game.last_error().name()));
+        match hatchery.morph(UnitType::ZERG_LAIR) {
+            Ok(()) => bot.log(cx, &format!("lair: hatchery #{} morphing", hatchery.id())),
+            Err(error) => {
+                bot.build.mark_fail(UnitType::ZERG_LAIR, game.frame_count());
+                game.send_text(&format!("lair morph failed: {error}"));
+                bot.log(cx, &format!("lair morph failed: {error}"));
+            }
         }
     }
 }
@@ -219,12 +220,13 @@ fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
                 .iter(cx)
                 .find(|u| u.exists() && u.is_completed() && !u.is_morphing() && u.unit_type() == UnitType::ZERG_LAIR)
             {
-                if lair.morph(UnitType::ZERG_HIVE).is_ok() {
-                    bot.log(cx, &format!("hive: lair #{} morphing", lair.id()));
-                } else {
-                    bot.build.mark_fail(UnitType::ZERG_HIVE, game.frame_count());
-                    game.send_text(&format!("hive morph failed: {}", game.last_error().name()));
-                    bot.log(cx, &format!("hive morph failed: {}", game.last_error().name()));
+                match lair.morph(UnitType::ZERG_HIVE) {
+                    Ok(()) => bot.log(cx, &format!("hive: lair #{} morphing", lair.id())),
+                    Err(error) => {
+                        bot.build.mark_fail(UnitType::ZERG_HIVE, game.frame_count());
+                        game.send_text(&format!("hive morph failed: {error}"));
+                        bot.log(cx, &format!("hive morph failed: {error}"));
+                    }
                 }
             }
         }
@@ -337,10 +339,9 @@ fn manage_upgrades<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
         .iter(cx)
         .find(|u| u.exists() && u.is_completed() && u.is_idle() && u.unit_type() == UnitType::ZERG_SPAWNING_POOL)
     {
-        if pool.upgrade(want).is_ok() {
-            bot.log(cx, &format!("upgrade: {} researching", want.name()));
-        } else {
-            bot.log(cx, &format!("upgrade failed: {}", game.last_error().name()));
+        match pool.upgrade(want) {
+            Ok(()) => bot.log(cx, &format!("upgrade: {} researching", want.name())),
+            Err(error) => bot.log(cx, &format!("upgrade failed: {error}")),
         }
     }
 }
@@ -555,11 +556,10 @@ impl<'game> ZzzkBot<'game> {
                     if unit.is_carrying_gas() {
                         let _ = unit.return_cargo();
                     } else if let Some(refinery) = self.refinery {
-                        if unit.gather(refinery).is_err() && game.frame_count() % 300 == 0 {
-                            self.log(
-                                cx,
-                                &format!("gas: drone #{} gather failed: {}", unit.id(), game.last_error().name()),
-                            );
+                        if let Err(error) = unit.gather(refinery) {
+                            if game.frame_count() % 300 == 0 {
+                                self.log(cx, &format!("gas: drone #{} gather failed: {error}", unit.id()));
+                            }
                         }
                     } else if game.frame_count() % 300 == 0 {
                         self.log(cx, "gas: roster drone but no refinery");
