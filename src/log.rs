@@ -14,8 +14,8 @@ impl Logger {
     /// the game executable), discarding the previous match's log. Errors stay
     /// silent: logging must never break the bot.
     pub fn open() -> Logger {
-        let file = File::create("bwapi-data/zzzkbot.log")
-            .or_else(|_| File::create("zzzkbot.log"))
+        let file = File::create("bwapi-data/zzzbot.log")
+            .or_else(|_| File::create("zzzbot.log"))
             .ok();
         Logger { file: RefCell::new(file) }
     }

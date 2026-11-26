@@ -1,4 +1,4 @@
-# zzzkbot-rs
+# zzzbot-rs
 
 StarCraft: Brood War bot on [bwapi-rs](../bwapi-rs). Zerg logic is inspired by Chris Coxe's
 [ZZZKBot](https://github.com/chriscoxe/ZZZKBot); the implementation is original.
@@ -6,7 +6,7 @@ StarCraft: Brood War bot on [bwapi-rs](../bwapi-rs). Zerg logic is inspired by C
 Note: it started as a RIIR (Rewrite It In Rust), but the implementation has
 since diverged far from the original.
 
-- `src/lib.rs` - the bot, built as a cdylib (`zzzkbot.dll`) loaded by BWAPI
+- `src/lib.rs` - the bot, built as a cdylib (`zzzbot.dll`) loaded by BWAPI
 - `src/main.rs` - `deploy` binary: copies the DLL into a StarCraft installation,
   wires `bwapi.ini`, ensures the map is present
 
