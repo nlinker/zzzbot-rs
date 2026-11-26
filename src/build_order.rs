@@ -4,14 +4,14 @@ use std::collections::HashMap;
 
 use bwapi::{Context, Position, TilePosition, Unit, UnitType};
 
-use crate::{ZzzkBot, strategy::Opener};
+use crate::{ZzzBot, strategy::Opener};
 
 /// Frames between retries after a failed placement.
 const RETRY_FRAMES: i32 = 24;
 
 /// Supply freed by a morphing extractor: its drone stops costing supply.
 /// Cancelling the morph refunds the minerals and returns the drone.
-pub fn extractor_trick<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>, free_supply: i32) {
+pub fn extractor_trick<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>, free_supply: i32) {
     let game = cx.game();
     // A ling egg is two zerglings; below that the bot is supply-blocked.
     let egg_supply = UnitType::ZERG_ZERGLING.supply_required() * 2;
@@ -236,7 +236,7 @@ impl<'game> BuildEngine<'game> {
 /// Picks a builder and tile when retry allows. The caller builds. The filters
 /// exclude every drone with another job: a geyser stripped of its workers
 /// stalls the gas income for the rest of the match.
-pub fn plan<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>, unit_type: UnitType) -> Option<Plan<'game>> {
+pub fn plan<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>, unit_type: UnitType) -> Option<Plan<'game>> {
     let game = cx.game();
     let me = game.self_player().expect("the bot plays a match, not a replay");
     if me.minerals() < unit_type.mineral_price() || me.gas() < unit_type.gas_price() {
@@ -297,7 +297,7 @@ pub fn plan<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>, unit_type: 
 
 /// Nearest free drone: not a scout, not morphing, not already building, not
 /// a gas worker, not the trick builder.
-fn pick_builder<'game>(cx: Context<'_, 'game>, bot: &ZzzkBot<'game>, near: Position) -> Option<Unit<'game>> {
+fn pick_builder<'game>(cx: Context<'_, 'game>, bot: &ZzzBot<'game>, near: Position) -> Option<Unit<'game>> {
     bot.own_units
         .iter(cx)
         .filter(|u| {

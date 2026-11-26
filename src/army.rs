@@ -2,7 +2,7 @@
 
 use bwapi::{Context, Position, UnitType};
 
-use crate::{ZzzkBot, strategy::BuildOrder};
+use crate::{ZzzBot, strategy::BuildOrder};
 
 /// Army units that take orders from the push layer.
 const ARMY_TYPES: [UnitType; 4] = [
@@ -40,7 +40,7 @@ const HYDRA_CAP: i32 = 24;
 
 /// Morphs an overlord when free supply approaches zero: the margin is half
 /// an overlord's capacity, so the morph lands before the block.
-pub fn supply_overlords<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>, counts: &crate::util::OwnCounts) {
+pub fn supply_overlords<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>, counts: &crate::util::OwnCounts) {
     let game = cx.game();
     let me = game.self_player().expect("the bot plays a match, not a replay");
     let free = me.supply_total() - counts.supply_used;
@@ -78,7 +78,7 @@ pub fn supply_overlords<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>,
 
 /// Ling production for the all-in and speedling orders: every idle larva
 /// becomes zerglings while minerals last.
-pub fn morph_lings<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> usize {
+pub fn morph_lings<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>) -> usize {
     if !matches!(
         bot.strategy.order,
         Some(BuildOrder::Pool4) | Some(BuildOrder::Speedling)
@@ -118,7 +118,7 @@ pub fn morph_lings<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> u
 /// minerals and gas last, up to the cap. The cap is unconditional: greedy
 /// mutas would otherwise drain the gas below the cavern price forever, so
 /// the cavern could never start and the cap (tied to it) never engaged.
-pub fn morph_mutas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+pub fn morph_mutas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>) {
     if bot.strategy.order != Some(BuildOrder::MutaRush) {
         return;
     }
@@ -157,7 +157,7 @@ pub fn morph_mutas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 
 /// Hydra production for the hydra rush: idle larvae become hydralisks while
 /// minerals and gas last.
-pub fn morph_hydras<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+pub fn morph_hydras<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>) {
     if bot.strategy.order != Some(BuildOrder::HydraRush) {
         return;
     }
@@ -200,7 +200,7 @@ pub fn morph_hydras<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 /// remaining candidate starts, so no time is wasted waiting for the scouts:
 /// the army walks toward the enemy while the scouts narrow it down, and
 /// anything met on the way is engaged (attack-move).
-pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>) {
     let game = cx.game();
     // Centroid of the unscouted candidate starts; map center when the set is
     // empty (enemy known to be nowhere among starts — expansions).
@@ -538,7 +538,7 @@ pub fn push_army<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 
 /// Roaming destinations for the hunt: the other start locations plus the
 /// mineral clusters (expansion candidates), as cluster centroids.
-fn hunt_points<'game>(cx: Context<'_, 'game>, bot: &ZzzkBot<'game>) -> Vec<Position> {
+fn hunt_points<'game>(cx: Context<'_, 'game>, bot: &ZzzBot<'game>) -> Vec<Position> {
     let game = cx.game();
     let home = Position::new(bot.scouting.my_start.x * 32 + 64, bot.scouting.my_start.y * 32 + 48);
     let mut points: Vec<Position> = bot
@@ -593,7 +593,7 @@ fn hunt_points<'game>(cx: Context<'_, 'game>, bot: &ZzzkBot<'game>) -> Vec<Posit
 /// start; the 30-70% band keeps the order it already has — no per-unit state
 /// needed. Mutas are excluded from the push wave: this function owns their
 /// orders.
-pub fn muta_micro<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+pub fn muta_micro<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>) {
     let game = cx.game();
     let mutas: Vec<_> = bot
         .own_units
@@ -636,7 +636,7 @@ pub fn muta_micro<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 
 /// Ultra production once the cavern is up: idle larvae become ultralisks
 /// while minerals and gas last.
-pub fn morph_ultras<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+pub fn morph_ultras<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>) {
     if bot.strategy.order != Some(BuildOrder::MutaRush) {
         return;
     }

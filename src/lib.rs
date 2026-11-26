@@ -21,7 +21,7 @@ const LOCAL_SPEED_START: i32 = 1;
 /// Game speed for the first real fight: the wave meets an enemy unit.
 pub const LOCAL_SPEED_ENGAGE: i32 = 1;
 
-pub struct ZzzkBot<'game> {
+pub struct ZzzBot<'game> {
     name: String,
     /// Live set descriptors: valid for the whole match, read through a `Context`.
     pub own_units: UnitSet<'game>,
@@ -62,7 +62,7 @@ pub struct ZzzkBot<'game> {
     scanned: usize,
 }
 
-impl<'game> ZzzkBot<'game> {
+impl<'game> ZzzBot<'game> {
     /// One log line at a decision point; called sparingly, so the file stays
     /// small.
     pub fn log(&self, cx: Context<'_, 'game>, message: &str) {
@@ -147,10 +147,10 @@ impl<'game> ZzzkBot<'game> {
     }
 }
 
-impl<'game> Bot<'game> for ZzzkBot<'game> {
+impl<'game> Bot<'game> for ZzzBot<'game> {
     fn on_start(cx: Context<'_, 'game>) -> Self {
         let game = cx.game();
-        let name = String::from("ZZZKBot-rs");
+        let name = String::from("ZZZBot-rs");
         game.send_text(&format!("Hello from Rust! {name} reporting in"));
 
         // Fast-forward (single player only); raise the skip for even more speed.
@@ -190,7 +190,7 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
                 game.map_name()
             ),
         );
-        ZzzkBot {
+        ZzzBot {
             name,
             own_units,
             minerals: game.minerals(),
@@ -263,4 +263,4 @@ impl<'game> Bot<'game> for ZzzkBot<'game> {
     }
 }
 
-bwapi::bot!(ZzzkBot);
+bwapi::bot!(ZzzBot);

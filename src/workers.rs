@@ -2,7 +2,7 @@
 
 use bwapi::{Context, CoordinateType, Position, Unit, UnitType, UpgradeType};
 
-use crate::{ZzzkBot, army, build_order, strategy::BuildOrder};
+use crate::{ZzzBot, army, build_order, strategy::BuildOrder};
 
 /// Maximum distance from an owned resource depot to a mineral patch (pixels).
 const MINERAL_DEPOT_RADIUS: i32 = 10 * 32;
@@ -20,7 +20,7 @@ const DRONE_CAP: i32 = 40;
 
 /// Issues a planned build and logs the decision either way: builder and tile
 /// on success, the BWAPI error on failure.
-fn issue_build<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>, plan: build_order::Plan<'game>, label: &str) {
+fn issue_build<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>, plan: build_order::Plan<'game>, label: &str) {
     let game = cx.game();
     let at = format!("{} at {},{}", label, plan.tile.x, plan.tile.y);
     match plan.builder.build(plan.unit_type, plan.tile) {
@@ -33,7 +33,7 @@ fn issue_build<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>, plan: bu
 }
 
 /// The macro layer: issues build orders by the current strategy.
-pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>) {
     let game = cx.game();
     let counts = crate::util::own_counts(&bot.own_units, cx);
     let have_pool = counts.all.get(&UnitType::ZERG_SPAWNING_POOL).copied().unwrap_or(0) > 0;
@@ -103,7 +103,7 @@ pub fn macro_orders<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 }
 
 /// Second hatchery for non-all-in orders: one is not enough larva flow.
-fn manage_hatcheries<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+fn manage_hatcheries<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>) {
     if bot.strategy.order == Some(BuildOrder::Pool4) {
         return; // all-in: minerals go into zerglings, not bases
     }
@@ -126,7 +126,7 @@ fn manage_hatcheries<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 /// Morphs the first hatchery into a lair once the pool and gas are up and
 /// the order wants tier-2 tech (mutas, hydras and the speedling upgrade
 /// path all need it).
-fn manage_lair<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+fn manage_lair<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>) {
     let wants_t2 = matches!(
         bot.strategy.order,
         Some(BuildOrder::Speedling) | Some(BuildOrder::MutaRush) | Some(BuildOrder::HydraRush)
@@ -177,7 +177,7 @@ fn manage_lair<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 /// completes. The hive itself gates nothing here — upgrades and the ultra
 /// cavern hang off their own gates — but the morph takes long, so it starts
 /// early.
-fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>) {
     // Speedling joins for the late game: once the attack stalls on a bank of
     // minerals, the hive unlocks Adrenal Glands (cracklings for free).
     if !matches!(
@@ -234,7 +234,7 @@ fn manage_tier3<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 }
 
 /// Builds the spire for the muta order once the lair is complete.
-fn manage_spire<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+fn manage_spire<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>) {
     let game = cx.game();
     if bot.strategy.order != Some(BuildOrder::MutaRush) {
         return;
@@ -265,7 +265,7 @@ fn manage_spire<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 
 /// Builds the hydralisk den for the hydra rush once the lair is complete
 /// (the den itself only needs the pool, but the rush times with tier 2).
-fn manage_den<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+fn manage_den<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>) {
     if bot.strategy.order != Some(BuildOrder::HydraRush) {
         return;
     }
@@ -283,7 +283,7 @@ fn manage_den<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 
 /// Builds the ultralisk cavern for the late game once the hive is complete
 /// (muta order: its tier-3 chain already reaches the hive).
-fn manage_cavern<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+fn manage_cavern<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>) {
     if bot.strategy.order != Some(BuildOrder::MutaRush) {
         return;
     }
@@ -302,7 +302,7 @@ fn manage_cavern<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 /// Ling upgrades at the spawning pool: Metabolic Boost once the lair is up
 /// (the Speedling path, or any late game that reached tier 2), Adrenal
 /// Glands at the hive.
-fn manage_upgrades<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+fn manage_upgrades<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>) {
     let game = cx.game();
     let me = game.self_player().expect("the bot plays a match, not a replay");
     let counts = crate::util::own_counts(&bot.own_units, cx);
@@ -348,7 +348,7 @@ fn manage_upgrades<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 
 /// Base defense: creep colonies up to the strategy's sunken count, finished
 /// ones morphed into sunken colonies. Returns that count, colonies included.
-fn manage_sunkens<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> i32 {
+fn manage_sunkens<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>) -> i32 {
     let want = bot.strategy.num_sunkens;
 
     let mut have: i32 = 0;
@@ -402,7 +402,7 @@ fn manage_sunkens<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) -> i3
 
 /// Builds the extractor after the pool (not on a 4-pool all-in) and staffs
 /// it with three drones once completed.
-fn manage_gas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+fn manage_gas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>) {
     // Dead drones and stale refinery leave the roster each frame; both events
     // are logged — a silent roster leak was hard to diagnose from the log.
     let before = bot.gas_drones.len();
@@ -478,7 +478,7 @@ fn manage_gas<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
 /// nearest miners into the fight, two per raider. Gas drones keep the geyser
 /// running (the gather order in `give_orders` would override them anyway);
 /// pulled drones go idle once the raiders die and return to mining.
-pub fn defend_base<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
+pub fn defend_base<'game>(cx: Context<'_, 'game>, bot: &mut ZzzBot<'game>) {
     let game = cx.game();
     let Some(enemy) = bot.scouting.enemy else { return };
     let base = bot.scouting.my_start;
@@ -522,7 +522,7 @@ pub fn defend_base<'game>(cx: Context<'_, 'game>, bot: &mut ZzzkBot<'game>) {
     }
 }
 
-impl<'game> ZzzkBot<'game> {
+impl<'game> ZzzBot<'game> {
     /// Idle workers mine minerals near completed owned depots; depots train
     /// workers up to the cap — past it, larva and minerals go to the army.
     pub fn give_orders(&mut self, cx: Context<'_, 'game>) {
